@@ -1763,6 +1763,7 @@
       pourCreateMode = ''
       notice = `Job ${newJob.seq} created with Stage ${newPour.stageNum}.`
       creatingPourFromList = false
+      await openPour(newPour.id)
       return
     }
 
@@ -1810,6 +1811,7 @@
     jobSeqInput = ''
     notice = `Stage ${newPour.stageNum} added to Job ${matchedJob.seq}.`
     creatingPourFromList = false
+    await openPour(newPour.id)
   }
 
   async function deletePour(pour) {
