@@ -151,6 +151,7 @@
   $: dateHistoryRecords = dateHistoryPhaseId
     ? [...historyDraft]
         .filter((dateRecord) =>
+          !dateRecord._deleted &&
           dateRecord.id_Pour === selectedPour?.id &&
           dateRecord.id_Phase === dateHistoryPhaseId
         )
@@ -766,18 +767,37 @@
     historyDraft = historyDraft.map((d) => d.id === dateRecord.id ? { ...d, flag_Complete: complete } : d)
   }
 
+  function deleteHistoryDate(dateRecord) {
+    if (savingHistory || !dateRecord) return
+
+    if (dateRecord._new) {
+      historyDraft = historyDraft.filter((d) => d.id !== dateRecord.id)
+    } else {
+      historyDraft = historyDraft.map((d) =>
+        d.id === dateRecord.id ? { ...d, _deleted: true } : d
+      )
+    }
+
+    historyError = ''
+  }
+
   async function saveDateHistory() {
     if (savingHistory || !selectedPour || !dateHistoryPhaseId) return
     const original = new Map(historyOriginal.map((d) => [d.id, d]))
-    const changes = historyDraft.filter((d) => d._new || JSON.stringify({
-      dateStart: d.dateStart, dateFinish: d.dateFinish, flag_Complete: d.flag_Complete
-    }) !== JSON.stringify({
-      dateStart: original.get(d.id)?.dateStart,
-      dateFinish: original.get(d.id)?.dateFinish,
-      flag_Complete: original.get(d.id)?.flag_Complete
-    })).map((d) => ({
+    const changes = historyDraft.filter((d) =>
+      d._deleted ||
+      d._new ||
+      JSON.stringify({
+        dateStart: d.dateStart, dateFinish: d.dateFinish, flag_Complete: d.flag_Complete
+      }) !== JSON.stringify({
+        dateStart: original.get(d.id)?.dateStart,
+        dateFinish: original.get(d.id)?.dateFinish,
+        flag_Complete: original.get(d.id)?.flag_Complete
+      })
+    ).map((d) => ({
       id: d.id,
       isNew: !!d._new,
+      isDeleted: !!d._deleted,
       dateStart: d.dateStart,
       dateFinish: d.dateFinish,
       flag_Complete: d.flag_Complete
@@ -1534,7 +1554,7 @@
             {:else}
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Start</th><th>Finish</th><th>Complete</th></tr></thead>
+                  <thead><tr><th>Start</th><th>Finish</th><th>Complete</th><th class="actions-column">Actions</th></tr></thead>
                   <tbody>
                     {#each dateHistoryRecords as relatedDate (relatedDate.id)}
                       <tr>
@@ -1567,6 +1587,16 @@
                           />
                         </td>
                         <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={savingHistory} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setHistoryDateComplete(relatedDate, event.currentTarget.checked)} /></td>
+                        <td class="row-actions">
+                          <button
+                            class="icon-button danger"
+                            type="button"
+                            title="Delete date"
+                            aria-label={`Delete ${phaseName(relatedDate.id_Phase)} date record`}
+                            disabled={savingHistory}
+                            on:click={() => deleteHistoryDate(relatedDate)}
+                          >×</button>
+                        </td>
                       </tr>
                     {/each}
                   </tbody>
