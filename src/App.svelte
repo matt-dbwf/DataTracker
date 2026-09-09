@@ -16,10 +16,12 @@
   let jobs = []
   let allPours = []
   let selectedJob = null
+  let selectedPour = null
   let pours = []
   let loadingJobs = false
   let loadingPours = false
   let loadingJob = false
+  let loadingPour = false
   let creatingJob = false
   let creatingPour = false
   let deletingJobId = null
@@ -48,6 +50,15 @@
   }
 
   const getJob = (jobId) => jobs.find((job) => job.id === jobId)
+  const pourIdentifier = (pour) => {
+    const seq = getJob(pour.id_Job)?.seq
+    return seq == null ? `Unknown Job-${pour.stageNum}` : `${seq}-${pour.stageNum}`
+  }
+  $: sortedAllPours = [...allPours].sort((a, b) => {
+    const aSeq = Number(getJob(a.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
+    const bSeq = Number(getJob(b.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
+    return aSeq - bSeq || Number(a.stageNum) - Number(b.stageNum) || a.id.localeCompare(b.id)
+  })
 
   onMount(async () => {
     if (!supabase) {
@@ -71,6 +82,7 @@
         jobs = []
         allPours = []
         selectedJob = null
+        selectedPour = null
         pours = []
         view = 'jobs'
         loading = false
@@ -153,6 +165,7 @@
   function navigate(target) {
     view = target
     selectedJob = null
+    selectedPour = null
     pours = []
     appError = ''
     notice = ''
@@ -207,6 +220,46 @@
     selectedJob = job ?? null
     pours = pourRows ?? []
     loadingJob = false
+  }
+
+  async function openPour(pourId) {
+    view = 'pour'
+    loadingPour = true
+    appError = ''
+    notice = ''
+    selectedPour = null
+
+    const { data: pour, error: pourError } = await supabase
+      .from('Pours')
+      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .eq('id', pourId)
+      .single()
+
+    if (pourError) {
+      appError = pourError.message
+      loadingPour = false
+      return
+    }
+
+    let parentJob = jobs.find((job) => job.id === pour.id_Job) ?? null
+    if (!parentJob) {
+      const { data: job, error: jobError } = await supabase
+        .from('Jobs')
+        .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+        .eq('id', pour.id_Job)
+        .single()
+
+      if (jobError) appError = jobError.message
+      parentJob = job ?? null
+      if (parentJob && !jobs.some((item) => item.id === parentJob.id)) jobs = [...jobs, parentJob]
+    }
+
+    selectedPour = { ...pour, job: parentJob }
+    loadingPour = false
+  }
+
+  function backToPours() {
+    navigate('pours')
   }
 
   function backToJobs() {
@@ -424,7 +477,7 @@
         <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>
           <span class="nav-icon">▣</span><span>Jobs</span>
         </button>
-        <button class:active={view === 'pours'} on:click={() => navigate('pours')}>
+        <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>
           <span class="nav-icon">◫</span><span>Pours</span>
         </button>
       </nav>
@@ -443,7 +496,7 @@
 
       <nav class="mobile-nav" aria-label="Mobile navigation">
         <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>Jobs</button>
-        <button class:active={view === 'pours'} on:click={() => navigate('pours')}>Pours</button>
+        <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
       </nav>
 
       <main class="content">
@@ -483,7 +536,7 @@
           </section>
         {:else if view === 'pours'}
           <section class="page-heading">
-            <div><p class="eyebrow">Pours</p><h1>Pours</h1><p>Open any Pour directly, grouped by its parent Job and stage number.</p></div>
+            <div><p class="eyebrow">Pours</p><h1>Pours</h1><p>Open any Pour directly using its Job sequence and stage number.</p></div>
             <button class="button primary" on:click={openPourCreate}><span class="plus">+</span>New Pour</button>
           </section>
 
@@ -495,18 +548,51 @@
               <div class="empty-state compact"><h3>No Pours yet</h3><p>Create a new Pour here, or add another stage to an existing Job.</p><button class="button primary" on:click={openPourCreate}>New Pour</button></div>
             {:else}
               <div class="table-wrap">
-                <table><thead><tr><th>Pour</th><th>Job</th><th class="actions-column">Actions</th></tr></thead><tbody>
-                  {#each allPours as pour}
+                <table><thead><tr><th>Pour</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                  {#each sortedAllPours as pour}
                     <tr>
-                      <td><button class="record-link" on:click={() => openJob(pour.id_Job)}>Stage {pour.stageNum}</button></td>
-                      <td class="muted-cell">{getJob(pour.id_Job) ? `Job ${getJob(pour.id_Job).seq}` : 'Unknown Job'}</td>
-                      <td class="row-actions"><button class="button secondary small-button" on:click={() => openJob(pour.id_Job)}>Open</button><button class="icon-button danger" title="Delete pour" aria-label={`Delete Stage ${pour.stageNum}`} disabled={deletingPourId === pour.id} on:click={() => deletePour(pour)}>{deletingPourId === pour.id ? '…' : '×'}</button></td>
+                      <td><button class="record-link" on:click={() => openPour(pour.id)}>{pourIdentifier(pour)}</button></td>
+                      <td class="row-actions"><button class="button secondary small-button" on:click={() => openPour(pour.id)}>Open</button><button class="icon-button danger" title="Delete pour" aria-label={`Delete Pour ${pourIdentifier(pour)}`} disabled={deletingPourId === pour.id} on:click={() => deletePour(pour)}>{deletingPourId === pour.id ? '…' : '×'}</button></td>
                     </tr>
                   {/each}
                 </tbody></table>
               </div>
             {/if}
           </section>
+        {:else if view === 'pour'}
+          <button class="back-button" on:click={backToPours}>← Back to Pours</button>
+          {#if loadingPour}
+            <section class="panel panel-loading">Loading pour…</section>
+          {:else if selectedPour}
+            <section class="detail-heading">
+              <div>
+                <p class="eyebrow">Pour details</p>
+                <h1>{selectedPour.job?.seq ?? 'Unknown'}-{selectedPour.stageNum}</h1>
+                <p class="creator-line">Created {formatDateTime(selectedPour.created_at)}{#if selectedPour.creator} by {employeeName(selectedPour.creator)}{/if}</p>
+              </div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="detail-grid">
+                <div class="detail-field">
+                  <span class="detail-label">Pour</span>
+                  <strong>{selectedPour.job?.seq ?? 'Unknown'}-{selectedPour.stageNum}</strong>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">Job</span>
+                  {#if selectedPour.job}
+                    <button class="record-link" on:click={() => openJob(selectedPour.id_Job)}>Job {selectedPour.job.seq}</button>
+                  {:else}
+                    <strong>Unknown Job</strong>
+                  {/if}
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">Stage</span>
+                  <strong>{selectedPour.stageNum}</strong>
+                </div>
+              </div>
+            </section>
+          {/if}
         {:else if view === 'job'}
           <button class="back-button" on:click={backToJobs}>← Back to Jobs</button>
           {#if loadingJob}

@@ -169,3 +169,11 @@ tbody tr:hover { background: #fcfdfe; }
   .modal-actions .button { width: 100%; }
 }
 
+
+
+.detail-panel { padding: 1.4rem 1.5rem; }
+.detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.detail-field { min-height: 92px; padding: 1rem; border: 1px solid #e6eaee; border-radius: 11px; display: flex; flex-direction: column; justify-content: center; gap: .4rem; background: #fafbfc; }
+.detail-label { font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #7b8490; }
+.detail-field strong, .detail-field .record-link { font-size: 1.05rem; }
+@media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr; } }
