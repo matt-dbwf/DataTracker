@@ -351,3 +351,178 @@ tbody tr:hover { background: #fcfdfe; }
 .address-heading {
   margin-bottom: 1rem;
 }
+
+
+.company-create-grid,
+.company-detail-grid,
+.contact-create-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.company-create-grid,
+.company-detail-grid {
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) auto;
+  align-items: end;
+}
+
+.contact-create-grid {
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+  align-items: end;
+  margin-bottom: 1.25rem;
+}
+
+.role-picker {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 0.65rem;
+  padding: 0.85rem 1rem;
+  min-width: 0;
+}
+
+.role-picker legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+
+.role-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+
+.role-checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+@media (max-width: 900px) {
+  .company-create-grid,
+  .company-detail-grid,
+  .contact-create-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.new-contact-row td {
+  vertical-align: middle;
+}
+
+.inline-text-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inline-contact-create {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+@media (max-width: 700px) {
+  .inline-contact-create {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.contact-modal {
+  width: min(520px, calc(100vw - 2rem));
+}
+
+.contact-modal-fields {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 600px) {
+  .panel-heading-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+
+.contact-modal {
+  width: min(760px, calc(100vw - 2rem));
+}
+
+.contact-modal-body {
+  padding-top: 0.5rem;
+  padding-bottom: 0.75rem;
+}
+
+.contact-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+
+.contact-modal .modal-actions {
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 700px) {
+  .contact-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* Contact modal: match Date History modal's generous internal spacing. */
+.contact-modal {
+  width: min(760px, calc(100vw - 2rem));
+  padding: 0;
+  overflow: hidden;
+}
+
+.contact-modal-header {
+  padding: 1.5rem 1.75rem 1rem;
+}
+
+.contact-modal-header h2 {
+  margin-bottom: 0;
+}
+
+.contact-modal-content {
+  padding: 1.25rem 1.75rem 1.5rem;
+}
+
+.contact-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem 1.5rem;
+}
+
+.contact-modal-footer {
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding: 1rem 1.75rem 1.5rem;
+}
+
+.contact-modal-footer .modal-actions {
+  margin: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .contact-modal-header,
+  .contact-modal-content,
+  .contact-modal-footer {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  .contact-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}

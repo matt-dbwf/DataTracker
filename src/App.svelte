@@ -29,6 +29,18 @@
   let deletingPourId = null
 
   let phases = []
+  let companies = []
+  let selectedCompany = null
+  let contacts = []
+  let companyNameInput = ''
+  let companyRoleIds = []
+  let contactFirstInput = ''
+  let contactLastInput = ''
+  let showContactCreateModal = false
+  let creatingCompany = false
+  let creatingContact = false
+  let savingCompany = false
+  let loadingCompany = false
   let selectedPhase = null
   let phaseDates = []
   let loadingPhases = false
@@ -187,6 +199,144 @@
     historyError = ''
   }
 
+  const companyRoleNames = (roleIds) =>
+    (roleIds ?? [])
+      .map((id) => phases.find((phase) => phase.id === id)?.name)
+      .filter(Boolean)
+      .join(', ')
+
+  function toggleCompanyRole(phaseId) {
+    companyRoleIds = companyRoleIds.includes(phaseId)
+      ? companyRoleIds.filter((id) => id !== phaseId)
+      : [...companyRoleIds, phaseId]
+  }
+
+  async function loadCompanies() {
+    const { data, error } = await supabase
+      .from('Companies')
+      .select('id, name, id_Roles')
+      .order('name', { ascending: true })
+
+    if (error) appError = error.message
+    else companies = data ?? []
+  }
+
+  async function openCompany(companyId, historyMode = 'push') {
+    writeAppLocation('company', companyId, historyMode)
+    view = 'company'
+    loadingCompany = true
+    appError = ''
+    selectedCompany = null
+    contacts = []
+
+    const [{ data: company, error: companyError }, { data: contactRows, error: contactsError }] = await Promise.all([
+      supabase.from('Companies').select('id, name, id_Roles').eq('id', companyId).single(),
+      supabase.from('Contacts').select('id, nameFirst, nameLast, id_Company').eq('id_Company', companyId).order('nameLast', { ascending: true }).order('nameFirst', { ascending: true })
+    ])
+
+    if (companyError) appError = companyError.message
+    if (contactsError) appError = contactsError.message
+
+    selectedCompany = company ?? null
+    companyNameInput = company?.name ?? ''
+    companyRoleIds = company?.id_Roles ?? []
+    contacts = contactRows ?? []
+    loadingCompany = false
+  }
+
+  async function createCompany() {
+    creatingCompany = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Companies')
+      .insert({
+        name: 'New Company',
+        id_Roles: []
+      })
+      .select('id, name, id_Roles')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      companies = [...companies, data].sort((a, b) => a.name.localeCompare(b.name))
+      await openCompany(data.id)
+    }
+
+    creatingCompany = false
+  }
+
+  async function saveCompany() {
+    if (!selectedCompany || !companyNameInput.trim()) return
+
+    savingCompany = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Companies')
+      .update({
+        name: companyNameInput.trim(),
+        id_Roles: companyRoleIds
+      })
+      .eq('id', selectedCompany.id)
+      .select('id, name, id_Roles')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      selectedCompany = data
+      companies = companies.map((company) => company.id === data.id ? data : company)
+    }
+
+    savingCompany = false
+  }
+
+  function openContactCreateModal() {
+    contactFirstInput = ''
+    contactLastInput = ''
+    appError = ''
+    showContactCreateModal = true
+  }
+
+  function closeContactCreateModal() {
+    if (creatingContact) return
+    contactFirstInput = ''
+    contactLastInput = ''
+    showContactCreateModal = false
+  }
+
+  async function createContact() {
+    if (!selectedCompany || !contactFirstInput.trim() || !contactLastInput.trim()) return
+
+    creatingContact = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Contacts')
+      .insert({
+        nameFirst: contactFirstInput.trim(),
+        nameLast: contactLastInput.trim(),
+        id_Company: selectedCompany.id
+      })
+      .select('id, nameFirst, nameLast, id_Company')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      contacts = [...contacts, data].sort((a, b) =>
+        a.nameLast.localeCompare(b.nameLast) || a.nameFirst.localeCompare(b.nameFirst)
+      )
+      contactFirstInput = ''
+      contactLastInput = ''
+      showContactCreateModal = false
+    }
+
+    creatingContact = false
+  }
+
   function appLocation() {
     const params = new URLSearchParams(window.location.search)
     return {
@@ -231,7 +381,12 @@
       return
     }
 
-    if (['jobs', 'pours', 'phases'].includes(location.view)) {
+    if (location.view === 'company' && location.id) {
+      await openCompany(location.id, 'none')
+      return
+    }
+
+    if (['jobs', 'pours', 'phases', 'companies'].includes(location.view)) {
       await navigate(location.view, 'none')
       return
     }
@@ -276,6 +431,9 @@
           jobs = []
           allPours = []
           phases = []
+          companies = []
+          selectedCompany = null
+          contacts = []
           selectedPhase = null
           phaseDates = []
           dates = []
@@ -301,7 +459,7 @@
     appError = ''
     await loadEmployee()
     if (employee) {
-      await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
+      await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies()])
       await restoreAppLocation()
     }
     loading = false
@@ -430,6 +588,8 @@
     appError = ''
     notice = ''
     selectedPhase = null
+    selectedCompany = null
+    contacts = []
     phaseDates = []
 
     const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
@@ -929,6 +1089,7 @@
     if (target === 'jobs') await loadJobs()
     if (target === 'pours') await Promise.all([loadJobs(), loadAllPours()])
     if (target === 'phases') await loadPhases()
+    if (target === 'companies') await Promise.all([loadCompanies(), loadPhases()])
   }
 
   async function createJob() {
@@ -1245,6 +1406,9 @@
         <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>
           <span class="nav-icon">◇</span><span>Phases</span>
         </button>
+        <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>
+          <span class="nav-icon">▤</span><span>Companies</span>
+        </button>
       </nav>
 
       <div class="sidebar-user">
@@ -1263,6 +1427,7 @@
         <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>Jobs</button>
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
         <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
+        <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>Companies</button>
       </nav>
 
       <main class="content">
@@ -1383,6 +1548,121 @@
               </div>
             {/if}
           </section>
+
+        {:else if view === 'companies'}
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">Companies</p>
+              <h1>Companies</h1>
+            </div>
+            <button class="button primary" on:click={createCompany} disabled={creatingCompany}>
+              <span class="plus">+</span>{creatingCompany ? 'Creating…' : 'New Company'}
+            </button>
+          </section>
+
+          <section class="panel">
+            {#if companies.length === 0}
+              <div class="empty-state compact"><p>No Companies found.</p></div>
+            {:else}
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th><th>Roles</th></tr></thead>
+                  <tbody>
+                    {#each companies as company (company.id)}
+                      <tr>
+                        <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openCompany(company.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openCompany(company.id)}>
+                          <span class="record-link">{company.name}</span>
+                        </td>
+                        <td>{companyRoleNames(company.id_Roles) || '—'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </section>
+
+        {:else if view === 'company'}
+          <button class="back-button" on:click={() => navigate('companies')}>← Back to Companies</button>
+          {#if loadingCompany}
+            <section class="panel panel-loading">Loading company…</section>
+          {:else if selectedCompany}
+            <section class="detail-heading">
+              <div>
+                <p class="eyebrow">Company details</p>
+                <h1>{selectedCompany.name}</h1>
+              </div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="company-detail-grid">
+                <label class="field-label">
+                  <span>Name</span>
+                  <input type="text" bind:value={companyNameInput} />
+                </label>
+
+                <fieldset class="role-picker">
+                  <legend>Roles</legend>
+                  <div class="role-checkboxes">
+                    {#each phases as phase (phase.id)}
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={companyRoleIds.includes(phase.id)}
+                          on:change={() => toggleCompanyRole(phase.id)}
+                        />
+                        <span>{phase.name}</span>
+                      </label>
+                    {/each}
+                  </div>
+                </fieldset>
+
+                <div>
+                  <button class="button primary" type="button" disabled={savingCompany || !companyNameInput.trim()} on:click={saveCompany}>
+                    {savingCompany ? 'Saving…' : 'Save Company'}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel dates-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Contacts</p>
+                  <h2>Related Contacts</h2>
+                </div>
+                <div class="panel-heading-actions">
+                  <span class="count-badge">{contacts.length}</span>
+                  <button class="button primary compact-button" type="button" on:click={openContactCreateModal}>
+                    <span class="plus">+</span>New Contact
+                  </button>
+                </div>
+              </div>
+
+              {#if contacts.length === 0}
+                <div class="empty-state compact"><p>No Contacts have been created for this Company yet.</p></div>
+              {:else}
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each contacts as contact (contact.id)}
+                        <tr>
+                          <td>{contact.nameFirst}</td>
+                          <td>{contact.nameLast}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </section>
+          {/if}
 
         {:else if view === 'phases'}
           <section class="page-heading">
@@ -1786,4 +2066,55 @@
       </div>
     {/if}
   </div>
+      {#if showContactCreateModal}
+        <div class="modal-backdrop">
+          <section class="modal-card history-modal contact-modal" role="dialog" aria-modal="true" aria-labelledby="contact-create-title">
+            <div class="contact-modal-header">
+              <div>
+                <p class="eyebrow">Contact</p>
+                <h2 id="contact-create-title">New Contact</h2>
+              </div>
+            </div>
+
+            <div class="contact-modal-content">
+              <div class="address-edit-grid contact-edit-grid">
+                <label class="field-label">
+                  <span>First Name</span>
+                  <input
+                    type="text"
+                    bind:value={contactFirstInput}
+                    autocomplete="given-name"
+                    />
+                </label>
+
+                <label class="field-label">
+                  <span>Last Name</span>
+                  <input
+                    type="text"
+                    bind:value={contactLastInput}
+                    autocomplete="family-name"
+                    />
+                </label>
+              </div>
+            </div>
+
+            <div class="contact-modal-footer">
+              <div class="modal-actions">
+                <button class="button secondary" type="button" disabled={creatingContact} on:click={closeContactCreateModal}>
+                  Cancel
+                </button>
+                <button
+                  class="button primary"
+                  type="button"
+                  disabled={creatingContact || !contactFirstInput.trim() || !contactLastInput.trim()}
+                  on:click={createContact}
+                >
+                  {creatingContact ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      {/if}
+
 {/if}
