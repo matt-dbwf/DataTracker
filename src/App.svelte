@@ -57,6 +57,11 @@
   let savingCompany = false
   let loadingCompany = false
   let selectedPhase = null
+
+  $: if (['phases', 'phase', 'roles-companies', 'role-company', 'roles-contacts', 'role-contact'].includes(view)) {
+    settingsExpanded = true
+  }
+  let settingsExpanded = false
   let draggedPhaseId = null
   let phaseDropTargetId = null
   let phaseTypeRoleInput = ''
@@ -1670,24 +1675,32 @@
       </button>
 
       <nav class="side-nav" aria-label="Primary navigation">
-        <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>
-          <span class="nav-icon">▣</span><span>Jobs</span>
-        </button>
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>
           <span class="nav-icon">◫</span><span>Pours</span>
-        </button>
-        <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>
-          <span class="nav-icon">◇</span><span>Phases</span>
         </button>
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>
           <span class="nav-icon">▤</span><span>Companies</span>
         </button>
-          <button class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>
-            <span class="nav-icon">▤</span><span>Company Roles</span>
+
+        <div class="nav-section">
+          <button
+            class="nav-section-toggle"
+            class:active={['phases', 'phase', 'roles-companies', 'role-company', 'roles-contacts', 'role-contact'].includes(view)}
+            type="button"
+            aria-expanded={settingsExpanded}
+            on:click={() => settingsExpanded = !settingsExpanded}
+          >
+            <span class="nav-section-toggle-label"><span class="nav-icon">⚙</span><span>Settings</span></span>
+            <span class:expanded={settingsExpanded} class="nav-chevron">›</span>
           </button>
-          <button class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>
-            <span class="nav-icon">▤</span><span>Contact Roles</span>
-          </button>
+          {#if settingsExpanded}
+            <div class="nav-submenu">
+              <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
+              <button class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>Company Roles</button>
+              <button class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>Contact Roles</button>
+            </div>
+          {/if}
+        </div>
       </nav>
 
       <div class="sidebar-user">
@@ -1703,14 +1716,17 @@
       </header>
 
       <nav class="mobile-nav" aria-label="Mobile navigation">
-        <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>Jobs</button>
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
-        <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>Companies</button>
-      
-            <button class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>Company Roles</button>
-            <button class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>Contact Roles</button>
-          </nav>
+        <button class="mobile-settings-toggle" type="button" aria-expanded={settingsExpanded} on:click={() => settingsExpanded = !settingsExpanded}>
+          <span>Settings</span><span class:expanded={settingsExpanded} class="nav-chevron">›</span>
+        </button>
+        {#if settingsExpanded}
+          <button class="mobile-nav-submenu" class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
+          <button class="mobile-nav-submenu" class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>Company Roles</button>
+          <button class="mobile-nav-submenu" class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>Contact Roles</button>
+        {/if}
+      </nav>
 
       <main class="content">
         {#if appError}<div class="alert error top-alert">{appError}</div>{/if}
