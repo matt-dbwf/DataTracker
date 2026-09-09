@@ -864,3 +864,34 @@ tr.phase-drop-target td {
   display: block;
   line-height: 1.2;
 }
+
+.company-filter-row th {
+  padding-top: 1.5rem;
+  padding-bottom: 0.75rem;
+  vertical-align: top;
+}
+
+.company-search-field {
+  display: block;
+  width: min(100%, 420px);
+}
+
+.company-role-search-field {
+  display: block;
+  width: auto;
+  max-width: 100%;
+}
+
+.company-search-field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.company-role-search-field select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.company-filter-row + tr th {
+  padding-top: 0.5rem;
+}

@@ -45,6 +45,8 @@
   let loadingRoleContact = false
 
   let companies = []
+  let companySearchInput = ''
+  let companyRoleSearchId = ''
   let selectedCompany = null
   let contacts = []
   let allContacts = []
@@ -59,6 +61,15 @@
   let savingCompany = false
   let loadingCompany = false
   let selectedPhase = null
+
+  $: filteredCompanies = companies.filter((company) =>
+    company.name.toLowerCase().includes(companySearchInput.trim().toLowerCase()) &&
+    (!companyRoleSearchId || (company.id_Roles ?? []).includes(companyRoleSearchId))
+  )
+  $: companyRoleFilterWidth = Math.max(
+    'All Company Roles'.length,
+    ...rolesCompanies.map((role) => role.name.length)
+  ) + 4
 
   $: if (['phases', 'phase', 'roles-companies', 'role-company', 'roles-contacts', 'role-contact'].includes(view)) {
     settingsExpanded = true
@@ -2156,14 +2167,49 @@
           </section>
 
           <section class="panel">
+
+
             {#if companies.length === 0}
               <div class="empty-state compact"><p>No Companies found.</p></div>
+            {:else if filteredCompanies.length === 0}
+              <div class="empty-state compact"><p>No Companies match your search.</p></div>
             {:else}
               <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Name</th><th>Roles</th></tr></thead>
+                <table class="companies-table">
+                  <thead>
+                    <tr class="company-filter-row">
+                      <th>
+                        <label class="field-label company-search-field">
+                          <input
+                            type="search"
+                            placeholder="Search by company name"
+                            aria-label="Search Companies"
+                            bind:value={companySearchInput}
+                          />
+                        </label>
+                      </th>
+                      <th>
+                        <label class="field-label company-role-search-field">
+                          <select
+                            bind:value={companyRoleSearchId}
+                            aria-label="Filter Companies by role"
+                            style={`width: ${companyRoleFilterWidth}ch`}
+                          >
+                            <option value="">All Company Roles</option>
+                            {#each rolesCompanies as role (role.id)}
+                              <option value={role.id}>{role.name}</option>
+                            {/each}
+                          </select>
+                        </label>
+                      </th>
+                    </tr>
+                    <tr>
+                      <th>Name</th>
+                      <th>Roles</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {#each companies as company (company.id)}
+                    {#each filteredCompanies as company (company.id)}
                       <tr>
                         <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openCompany(company.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openCompany(company.id)}>
                           <span class="record-link">{company.name}</span>
