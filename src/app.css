@@ -810,3 +810,32 @@ tr.phase-drop-target td {
   min-width: 180px;
   box-sizing: border-box;
 }
+
+.active-col,
+.active-cell {
+  width: 72px;
+  text-align: center;
+}
+
+.inactive-phase-row > td:not(.active-cell) {
+  opacity: 0.52;
+}
+
+.inactive-phase-row .record-link {
+  opacity: 1;
+}
+
+.phase-name-static {
+  font-weight: 600;
+}
+
+.pour-list-phase-inactive {
+  opacity: 0.5;
+  background: var(--surface-subtle, #f6f7f8);
+}
+
+.pour-list-phase-inactive input,
+.pour-list-phase-inactive select,
+.pour-list-phase-inactive button {
+  cursor: not-allowed;
+}

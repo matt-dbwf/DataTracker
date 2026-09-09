@@ -16,6 +16,7 @@
   let jobs = []
   let allPours = []
   let allPourDates = []
+  let allPourPhaseStates = []
   let selectedJob = null
   let selectedPour = null
   let pours = []
@@ -79,6 +80,8 @@
   let phaseDetailSortInput = 0
 
   let dates = []
+  let pourPhaseStates = []
+  let savingPourPhaseId = null
   let dateHistoryPhaseId = null
   let loadingDates = false
   let creatingDate = false
@@ -145,6 +148,11 @@
     return firstIncomplete ?? related[related.length - 1] ?? null
   }
 
+  const pourPhaseIsActive = (pourId, phaseId) =>
+    allPourPhaseStates.find(
+      (state) => state.id_Pour === pourId && state.id_Phase === phaseId
+    )?.flag_Active ?? true
+
   const getJob = (jobId) => jobs.find((job) => job.id === jobId)
   const phaseName = (phaseId) => phases.find((phase) => phase.id === phaseId)?.name ?? 'Unknown phase'
   const phaseSort = (phaseId) => Number(phases.find((phase) => phase.id === phaseId)?.sort ?? Number.POSITIVE_INFINITY)
@@ -183,10 +191,14 @@
     })
     .filter(Boolean)
 
-  $: pourPhaseRows = phases.map((phase) => ({
-    phase,
-    dateRecord: visibleDates.find((dateRecord) => dateRecord.id_Phase === phase.id) ?? null
-  }))
+  $: pourPhaseRows = phases.map((phase) => {
+    const phaseState = pourPhaseStates.find((state) => state.id_Phase === phase.id)
+    return {
+      phase,
+      dateRecord: visibleDates.find((dateRecord) => dateRecord.id_Phase === phase.id) ?? null,
+      flagActive: phaseState?.flag_Active ?? true
+    }
+  })
 
   $: dateHistoryPhase = phases.find((phase) => phase.id === dateHistoryPhaseId) ?? null
 
@@ -766,7 +778,11 @@
     loadingPours = true
     appError = ''
 
-    const [{ data, error }, { data: dateData, error: dateError }] = await Promise.all([
+    const [
+      { data, error },
+      { data: dateData, error: dateError },
+      { data: pourPhaseData, error: pourPhaseError }
+    ] = await Promise.all([
       supabase
         .from('Pours')
         .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
@@ -774,7 +790,10 @@
       supabase
         .from('Dates')
         .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
-        .order('dateStart', { ascending: true })
+        .order('dateStart', { ascending: true }),
+      supabase
+        .from('PourPhases')
+        .select('id, id_Pour, id_Phase, flag_Active')
     ])
 
     if (error) appError = error.message
@@ -782,6 +801,9 @@
 
     if (dateError) appError = dateError.message
     else allPourDates = dateData ?? []
+
+    if (pourPhaseError) appError = pourPhaseError.message
+    else allPourPhaseStates = pourPhaseData ?? []
 
     loadingPours = false
   }
@@ -965,7 +987,7 @@
   }
 
   async function setPourListDateComplete(dateRecord, flagComplete) {
-    if (!dateRecord) return
+    if (!dateRecord || !pourPhaseIsActive(dateRecord.id_Pour, dateRecord.id_Phase)) return
 
     completingPourListDateId = dateRecord.id
     appError = ''
@@ -1025,6 +1047,7 @@
   }
 
   async function savePourListDate(pour, phase, field, value, inputElement) {
+    if (!pourPhaseIsActive(pour.id, phase.id)) return
     const existing = pourPhaseDate(pour.id, phase.id)
     const key = `${pour.id}:${phase.id}:${field}`
     savingPourListDateKey = key
@@ -1110,7 +1133,7 @@
   }
 
   async function savePourListRoleAssignment(dateRecord, phase, value) {
-    if (!dateRecord || !phase || dateRecord.flag_Complete) return
+    if (!dateRecord || !phase || dateRecord.flag_Complete || !pourPhaseIsActive(dateRecord.id_Pour, phase.id)) return
 
     const isCompany = phase.typeRole === 'Company'
     const isContact = phase.typeRole === 'Contact'
@@ -1139,6 +1162,73 @@
         dates.map((item) => item.id === data.id ? data : item)
       )
     }
+  }
+
+  async function loadPourPhaseStates(pourId) {
+    const { data, error } = await supabase
+      .from('PourPhases')
+      .select('id, id_Pour, id_Phase, flag_Active')
+      .eq('id_Pour', pourId)
+
+    if (error) {
+      appError = error.message
+      pourPhaseStates = []
+    } else {
+      pourPhaseStates = data ?? []
+    }
+  }
+
+  async function setPourPhaseActive(row, flagActive) {
+    if (!selectedPour || !row?.phase || savingPourPhaseId === row.phase.id) return
+
+    savingPourPhaseId = row.phase.id
+    appError = ''
+
+    const previousStates = pourPhaseStates.map((state) => ({ ...state }))
+    const existingState = pourPhaseStates.find((state) => state.id_Phase === row.phase.id)
+
+    if (existingState) {
+      pourPhaseStates = pourPhaseStates.map((state) =>
+        state.id_Phase === row.phase.id
+          ? { ...state, flag_Active: flagActive }
+          : state
+      )
+    } else {
+      pourPhaseStates = [
+        ...pourPhaseStates,
+        {
+          id: crypto.randomUUID(),
+          id_Pour: selectedPour.id,
+          id_Phase: row.phase.id,
+          flag_Active: flagActive
+        }
+      ]
+    }
+
+    const { data, error } = await supabase
+      .from('PourPhases')
+      .upsert(
+        {
+          id_Pour: selectedPour.id,
+          id_Phase: row.phase.id,
+          flag_Active: flagActive
+        },
+        { onConflict: 'id_Pour,id_Phase' }
+      )
+      .select('id, id_Pour, id_Phase, flag_Active')
+      .single()
+
+    if (error) {
+      appError = error.message
+      pourPhaseStates = previousStates
+    } else {
+      pourPhaseStates = [
+        ...pourPhaseStates.filter((state) => state.id_Phase !== data.id_Phase),
+        data
+      ]
+    }
+
+    savingPourPhaseId = null
   }
 
   async function loadDatesForPour(pourId) {
@@ -1550,6 +1640,7 @@
     appError = ''
     notice = ''
     selectedPour = null
+    pourPhaseStates = []
 
     const { data: pour, error: pourError } = await supabase
       .from('Pours')
@@ -1577,8 +1668,11 @@
     }
 
     selectedPour = { ...pour, job: parentJob }
-    await loadPhases()
-    await loadDatesForPour(pour.id)
+    await Promise.all([
+      loadPhases(),
+      loadDatesForPour(pour.id),
+      loadPourPhaseStates(pour.id)
+    ])
     loadingPour = false
   }
 
@@ -1915,7 +2009,8 @@
                         <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openPour(pour.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openPour(pour.id)}><span class="record-link">{pourIdentifier(pour)}</span></td>
                         {#each phases as phase (phase.id)}
                           {@const phaseDate = pourPhaseDate(pour.id, phase.id, allPourDates)}
-                          <td class="pour-list-date-cell">
+                          {@const phaseActive = pourPhaseIsActive(pour.id, phase.id)}
+                          <td class="pour-list-date-cell" class:pour-list-phase-inactive={!phaseActive}>
                             <input
                               class="inline-date-input"
                               type="date"
@@ -1924,7 +2019,7 @@
                               on:paste|preventDefault
                               on:drop|preventDefault
                               value={phaseDate?.dateStart || ''}
-                              disabled={phaseDate?.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateStart`}
+                              disabled={!phaseActive || phaseDate?.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateStart`}
                               aria-label={`${pourIdentifier(pour)} ${phase.name} start date`}
                               on:change={(event) => savePourListDate(pour, phase, 'dateStart', event.currentTarget.value, event.currentTarget)}
                             />
@@ -1937,7 +2032,7 @@
                               on:drop|preventDefault
                               value={phaseDate?.dateFinish || ''}
                               min={phaseDate?.dateStart || undefined}
-                              disabled={!phaseDate || phaseDate.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateFinish`}
+                              disabled={!phaseActive || !phaseDate || phaseDate.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateFinish`}
                               title={phaseDate ? 'Edit finish date' : 'Enter a start date first to create this Date record'}
                               aria-label={`${pourIdentifier(pour)} ${phase.name} finish date`}
                               on:change={(event) => savePourListDate(pour, phase, 'dateFinish', event.currentTarget.value, event.currentTarget)}
@@ -1946,7 +2041,7 @@
                               <label class="pour-list-role-field">
                                 <select
                                   value={phaseDate?.id_Company ?? ''}
-                                  disabled={!phaseDate || phaseDate.flag_Complete}
+                                  disabled={!phaseActive || !phaseDate || phaseDate.flag_Complete}
                                   aria-label={`${pourIdentifier(pour)} ${phase.name} company`}
                                   on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
                                 >
@@ -1960,7 +2055,7 @@
                               <label class="pour-list-role-field">
                                 <select
                                   value={phaseDate?.id_Contact ?? ''}
-                                  disabled={!phaseDate || phaseDate.flag_Complete}
+                                  disabled={!phaseActive || !phaseDate || phaseDate.flag_Complete}
                                   aria-label={`${pourIdentifier(pour)} ${phase.name} contact`}
                                   on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
                                 >
@@ -1976,7 +2071,7 @@
                               <input
                                 type="checkbox"
                                 checked={phaseDate?.flag_Complete || false}
-                                disabled={!phaseDate || completingPourListDateId === phaseDate.id}
+                                disabled={!phaseActive || !phaseDate || completingPourListDateId === phaseDate.id}
                                 aria-label={`Mark ${pourIdentifier(pour)} ${phase.name} date complete`}
                                 on:change={(event) => setPourListDateComplete(phaseDate, event.currentTarget.checked)}
                               />
@@ -1985,6 +2080,7 @@
                             <button
                               class="button secondary compact-button pour-list-show-all"
                               type="button"
+                              disabled={!phaseActive}
                               on:click={() => openDateHistory(phase.id, pour)}
                             >
                               Show All
@@ -2485,10 +2581,19 @@
               {:else if phases.length === 0}
                 <div class="empty-state compact"><p>No Phases have been created yet.</p></div>
               {:else}
-                <div class="table-wrap"><table><thead><tr><th>Phase</th><th class="date-col">Start</th><th class="date-col">Finish</th><th class="complete-col">Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                <div class="table-wrap"><table><thead><tr><th class="active-col">Active</th><th>Phase</th><th class="date-col">Start</th><th class="date-col">Finish</th><th class="complete-col">Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
                   {#each pourPhaseRows as row (row.phase.id)}
-                    <tr>
-                      <td><button class="record-link" on:click={() => openPhase(row.phase.id)}>{row.phase.name}</button></td>
+                    <tr class:inactive-phase-row={!row.flagActive}>
+                      <td class="active-cell">
+                        <input
+                          type="checkbox"
+                          checked={row.flagActive}
+                          disabled={savingPourPhaseId === row.phase.id}
+                          aria-label={`Set ${row.phase.name} active for this Pour`}
+                          on:change={(event) => setPourPhaseActive(row, event.currentTarget.checked)}
+                        />
+                      </td>
+                      <td><span class="phase-name-static">{row.phase.name}</span></td>
                       <td>
                         <input
                           class="inline-date-input"
@@ -2498,7 +2603,7 @@
                           on:paste|preventDefault
                           on:drop|preventDefault
                           value={row.dateRecord?.dateStart || ''}
-                          disabled={row.dateRecord?.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateStart`}
+                          disabled={!row.flagActive || row.dateRecord?.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateStart`}
                           aria-label={`${row.phase.name} start date`}
                           on:change={(event) => saveInlineDate(row, 'dateStart', event.currentTarget.value, event.currentTarget)}
                         />
@@ -2513,7 +2618,7 @@
                           on:drop|preventDefault
                           value={row.dateRecord?.dateFinish || ''}
                           min={row.dateRecord?.dateStart || undefined}
-                          disabled={!row.dateRecord || row.dateRecord.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateFinish`}
+                          disabled={!row.flagActive || !row.dateRecord || row.dateRecord.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateFinish`}
                           title={row.dateRecord ? 'Edit finish date' : 'Enter a start date first to create this Date record'}
                           aria-label={`${row.phase.name} finish date`}
                           on:change={(event) => saveInlineDate(row, 'dateFinish', event.currentTarget.value, event.currentTarget)}
@@ -2521,15 +2626,15 @@
                       </td>
                       <td>
                         {#if row.dateRecord}
-                          <input type="checkbox" checked={row.dateRecord.flag_Complete} disabled={completingDateId === row.dateRecord.id} aria-label={`Mark ${row.phase.name} date complete`} on:change={(event) => setDateComplete(row.dateRecord, event.currentTarget.checked)} />
+                          <input type="checkbox" checked={row.dateRecord.flag_Complete} disabled={!row.flagActive || completingDateId === row.dateRecord.id} aria-label={`Mark ${row.phase.name} date complete`} on:change={(event) => setDateComplete(row.dateRecord, event.currentTarget.checked)} />
                         {:else}
                           <input type="checkbox" disabled aria-label={`No ${row.phase.name} date record to complete`} />
                         {/if}
                       </td>
                       <td class="row-actions date-row-actions">
-                        <button class="button secondary compact-button" type="button" on:click={() => openDateHistory(row.phase.id)}>Show All</button>
+                        <button class="button secondary compact-button" type="button" disabled={!row.flagActive} on:click={() => openDateHistory(row.phase.id)}>Show All</button>
                         {#if row.dateRecord}
-                          <button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === row.dateRecord.id || completingDateId === row.dateRecord.id} on:click={() => deleteDate(row.dateRecord)}>{deletingDateId === row.dateRecord.id ? '…' : '×'}</button>
+                          <button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={!row.flagActive || deletingDateId === row.dateRecord.id || completingDateId === row.dateRecord.id} on:click={() => deleteDate(row.dateRecord)}>{deletingDateId === row.dateRecord.id ? '…' : '×'}</button>
                         {/if}
                       </td>
                     </tr>
