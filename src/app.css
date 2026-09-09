@@ -306,3 +306,48 @@ tbody tr:hover { background: #fcfdfe; }
   outline: 2px solid currentColor;
   outline-offset: -2px;
 }
+
+
+.address-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.address-edit-grid .field-label {
+  margin: 0;
+}
+
+.address-residence-field {
+  grid-column: span 3;
+}
+
+@media (max-width: 900px) {
+  .address-edit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .address-residence-field {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 600px) {
+  .address-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .address-residence-field {
+    grid-column: auto;
+  }
+}
+
+
+.detail-section-divider {
+  border-top: 1px solid var(--border, #e5e7eb);
+  margin: 1.5rem 0;
+}
+
+.address-heading {
+  margin-bottom: 1rem;
+}

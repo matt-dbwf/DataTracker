@@ -50,6 +50,7 @@
   let completingDateId = null
   let savingInlineDateKey = null
   let savingHistoryDateKey = null
+  let savingAddressKey = null
   let savingPourListDateKey = null
   let completingPourListDateId = null
   let showHistoryDateCreate = false
@@ -346,7 +347,7 @@
 
     const { data, error } = await supabase
       .from('Jobs')
-      .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+      .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
       .order('seq', { ascending: false })
 
     if (error) appError = error.message
@@ -361,7 +362,7 @@
     const [{ data, error }, { data: dateData, error: dateError }] = await Promise.all([
       supabase
         .from('Pours')
-        .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+        .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
         .order('created_at', { ascending: false }),
       supabase
         .from('Dates')
@@ -863,6 +864,57 @@
     deletingDateId = null
   }
 
+  async function saveJobAddressField(field, value) {
+    if (!selectedPour?.id_Job || !selectedPour?.job) return
+
+    const key = `job:${field}`
+    savingAddressKey = key
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Jobs')
+      .update({ [field]: value || null })
+      .eq('id', selectedPour.id_Job)
+      .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      jobs = jobs.map((job) => job.id === data.id ? data : job)
+      if (selectedJob?.id === data.id) selectedJob = data
+      selectedPour = { ...selectedPour, job: data }
+    }
+
+    savingAddressKey = null
+  }
+
+  async function savePourAddressField(field, value) {
+    if (!selectedPour) return
+
+    const key = `pour:${field}`
+    savingAddressKey = key
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Pours')
+      .update({ [field]: value || null })
+      .eq('id', selectedPour.id)
+      .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      const job = selectedPour.job
+      selectedPour = { ...data, job }
+      allPours = allPours.map((pour) => pour.id === data.id ? data : pour)
+      pours = pours.map((pour) => pour.id === data.id ? data : pour)
+    }
+
+    savingAddressKey = null
+  }
+
   async function navigate(target, historyMode = 'push') {
     writeAppLocation(target, null, historyMode)
     view = target
@@ -887,7 +939,7 @@
     const { data, error } = await supabase
       .from('Jobs')
       .insert({})
-      .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+      .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
       .single()
 
     if (error) {
@@ -911,12 +963,12 @@
     const [{ data: job, error: jobError }, { data: pourRows, error: poursError }] = await Promise.all([
       supabase
         .from('Jobs')
-        .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+        .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
         .eq('id', jobId)
         .single(),
       supabase
         .from('Pours')
-        .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+        .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
         .eq('id_Job', jobId)
         .order('stageNum', { ascending: true })
     ])
@@ -939,7 +991,7 @@
 
     const { data: pour, error: pourError } = await supabase
       .from('Pours')
-      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
       .eq('id', pourId)
       .single()
 
@@ -953,7 +1005,7 @@
     if (!parentJob) {
       const { data: job, error: jobError } = await supabase
         .from('Jobs')
-        .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+        .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
         .eq('id', pour.id_Job)
         .single()
 
@@ -986,7 +1038,7 @@
     const { data, error } = await supabase
       .from('Pours')
       .insert({ id_Job: selectedJob.id })
-      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
       .single()
 
     if (error) {
@@ -1027,7 +1079,7 @@
       const { data: newJob, error: jobError } = await supabase
         .from('Jobs')
         .insert({})
-        .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+        .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
         .single()
 
       if (jobError) {
@@ -1039,7 +1091,7 @@
       const { data: newPour, error: pourError } = await supabase
         .from('Pours')
         .insert({ id_Job: newJob.id })
-        .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+        .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
         .single()
 
       if (pourError) {
@@ -1067,7 +1119,7 @@
 
     const { data: matchedJob, error: matchError } = await supabase
       .from('Jobs')
-      .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+      .select('id, seq, created_at, id_Employee, address_LotNumber, address_StreetNumber, address_StreetName, address_Description, address_Suburb, address_Postcode, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
       .eq('seq', seq)
       .maybeSingle()
 
@@ -1086,7 +1138,7 @@
     const { data: newPour, error: pourError } = await supabase
       .from('Pours')
       .insert({ id_Job: matchedJob.id })
-      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .select('id, id_Job, stageNum, created_at, id_Employee, address_Residence, status, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
       .single()
 
     if (pourError) {
@@ -1421,8 +1473,81 @@
                   <strong>{selectedPour.stageNum}</strong>
                 </div>
               </div>
-            </section>
 
+              <div class="detail-section-divider"></div>
+              <div class="panel-heading address-heading">
+                <div>
+                  <p class="eyebrow">Address</p>
+                  <h2>Job and Pour address</h2>
+                </div>
+              </div>
+
+              <div class="address-edit-grid">
+                <label class="field-label">
+                  <span>Lot Number</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_LotNumber || ''}
+                    disabled={savingAddressKey === 'job:address_LotNumber'}
+                    on:change={(event) => saveJobAddressField('address_LotNumber', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label">
+                  <span>Street Number</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_StreetNumber || ''}
+                    disabled={savingAddressKey === 'job:address_StreetNumber'}
+                    on:change={(event) => saveJobAddressField('address_StreetNumber', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label">
+                  <span>Street Name</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_StreetName || ''}
+                    disabled={savingAddressKey === 'job:address_StreetName'}
+                    on:change={(event) => saveJobAddressField('address_StreetName', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label">
+                  <span>Description</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_Description || ''}
+                    disabled={savingAddressKey === 'job:address_Description'}
+                    on:change={(event) => saveJobAddressField('address_Description', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label">
+                  <span>Suburb</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_Suburb || ''}
+                    disabled={savingAddressKey === 'job:address_Suburb'}
+                    on:change={(event) => saveJobAddressField('address_Suburb', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label">
+                  <span>Postcode</span>
+                  <input
+                    type="text"
+                    value={selectedPour.job?.address_Postcode || ''}
+                    disabled={savingAddressKey === 'job:address_Postcode'}
+                    on:change={(event) => saveJobAddressField('address_Postcode', event.currentTarget.value)}
+                  />
+                </label>
+                <label class="field-label address-residence-field">
+                  <span>Residence</span>
+                  <input
+                    type="text"
+                    value={selectedPour.address_Residence || ''}
+                    disabled={savingAddressKey === 'pour:address_Residence'}
+                    on:change={(event) => savePourAddressField('address_Residence', event.currentTarget.value)}
+                  />
+                </label>
+              </div>
+            </section>
 
             <section class="panel dates-panel">
               <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{pourPhaseRows.length}</span></div>
