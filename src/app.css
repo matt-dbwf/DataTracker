@@ -709,3 +709,104 @@ tr.phase-drop-target td {
 .mobile-settings-toggle {
   padding: 0.55rem 0.75rem;
 }
+
+.history-role-select {
+  min-width: 12rem;
+  width: 100%;
+}
+
+.date-history-modal {
+  width: min(96vw, 1040px);
+  max-width: 1040px;
+}
+
+.date-history-modal .modal-body {
+  overflow: visible;
+}
+
+.date-history-table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 0.25rem;
+}
+
+.date-history-table {
+  width: 100%;
+  min-width: 820px;
+  table-layout: auto;
+}
+
+.date-history-table th,
+.date-history-table td {
+  vertical-align: middle;
+  padding: 0.8rem 0.75rem;
+}
+
+.date-history-table .date-col {
+  min-width: 150px;
+}
+
+.date-history-table .complete-col {
+  width: 92px;
+  text-align: center;
+}
+
+.date-history-table td:nth-child(3) {
+  text-align: center;
+}
+
+.date-history-table .role-col,
+.date-history-table .role-cell {
+  min-width: 240px;
+}
+
+.history-role-select {
+  display: block;
+  width: 100%;
+  min-width: 220px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.date-history-table .actions-column,
+.date-history-table .row-actions {
+  width: 72px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .date-history-modal {
+    width: min(98vw, 1040px);
+  }
+
+  .date-history-table {
+    min-width: 760px;
+  }
+
+  .date-history-table .role-col,
+  .date-history-table .role-cell {
+    min-width: 210px;
+  }
+}
+
+.pour-list-date-cell {
+  min-width: 220px;
+}
+
+.pour-list-role-field {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+}
+
+.pour-list-role-field > span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.pour-list-role-field select {
+  width: 100%;
+  min-width: 180px;
+  box-sizing: border-box;
+}

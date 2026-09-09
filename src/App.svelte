@@ -46,6 +46,7 @@
   let companies = []
   let selectedCompany = null
   let contacts = []
+  let allContacts = []
   let companyNameInput = ''
   let companyRoleIds = []
   let contactFirstInput = ''
@@ -131,8 +132,8 @@
     }).format(new Date(`${value}T00:00:00Z`))
   }
 
-  const pourPhaseDate = (pourId, phaseId) => {
-    const related = allPourDates
+  const pourPhaseDate = (pourId, phaseId, sourceDates = allPourDates) => {
+    const related = sourceDates
       .filter((dateRecord) => dateRecord.id_Pour === pourId && dateRecord.id_Phase === phaseId)
       .sort((a, b) =>
         a.dateStart.localeCompare(b.dateStart) ||
@@ -187,6 +188,8 @@
     dateRecord: visibleDates.find((dateRecord) => dateRecord.id_Phase === phase.id) ?? null
   }))
 
+  $: dateHistoryPhase = phases.find((phase) => phase.id === dateHistoryPhaseId) ?? null
+
   $: dateHistoryRecords = dateHistoryPhaseId
     ? [...historyDraft]
         .filter((dateRecord) =>
@@ -202,8 +205,9 @@
         )
     : []
 
-  function openDateHistory(phaseId, pour = selectedPour) {
+  async function openDateHistory(phaseId, pour = selectedPour) {
     if (pour) selectedPour = pour
+    await Promise.all([loadCompanies(), loadAllContacts()])
     dateHistoryPhaseId = phaseId
     const sourceDates = pour
       ? allPourDates.filter((d) => d.id_Pour === pour.id && d.id_Phase === phaseId)
@@ -237,6 +241,39 @@
       .filter(Boolean)
       .join(', ')
 
+  function companiesForPhase(phase) {
+    if (!phase?.id_RoleCompany) return []
+    return companies.filter((company) => (company.id_Roles ?? []).includes(phase.id_RoleCompany))
+  }
+
+  function contactsForPhase(phase) {
+    if (!phase?.id_RoleContact) return []
+    return allContacts.filter((contact) => (contact.id_Roles ?? []).includes(phase.id_RoleContact))
+  }
+
+  const contactDisplayName = (contact) =>
+    [contact?.nameFirst, contact?.nameLast].filter(Boolean).join(' ')
+
+  function setHistoryCompany(dateRecord, companyId) {
+    if (dateRecord?.flag_Complete || savingHistory) return
+    historyDraft = historyDraft.map((item) =>
+      item.id === dateRecord.id
+        ? { ...item, id_Company: companyId || null, id_Contact: null }
+        : item
+    )
+    historyError = ''
+  }
+
+  function setHistoryContact(dateRecord, contactId) {
+    if (dateRecord?.flag_Complete || savingHistory) return
+    historyDraft = historyDraft.map((item) =>
+      item.id === dateRecord.id
+        ? { ...item, id_Company: null, id_Contact: contactId || null }
+        : item
+    )
+    historyError = ''
+  }
+
   function toggleCompanyRole(roleId) {
     companyRoleIds = companyRoleIds.includes(roleId)
       ? companyRoleIds.filter((id) => id !== roleId)
@@ -247,6 +284,17 @@
     contactRoleIds = contactRoleIds.includes(roleId)
       ? contactRoleIds.filter((id) => id !== roleId)
       : [...contactRoleIds, roleId]
+  }
+
+  async function loadAllContacts() {
+    const { data, error } = await supabase
+      .from('Contacts')
+      .select('id, nameFirst, nameLast, id_Company, id_Roles')
+      .order('nameLast', { ascending: true })
+      .order('nameFirst', { ascending: true })
+
+    if (error) appError = error.message
+    else allContacts = data ?? []
   }
 
   async function loadCompanies() {
@@ -725,7 +773,7 @@
         .order('created_at', { ascending: false }),
       supabase
         .from('Dates')
-        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
         .order('dateStart', { ascending: true })
     ])
 
@@ -859,7 +907,7 @@
 
     const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
       supabase.from('Phases').select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact').eq('id', phaseId).single(),
-      supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
+      supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
     ])
 
     if (phaseError) appError = phaseError.message
@@ -922,17 +970,50 @@
     completingPourListDateId = dateRecord.id
     appError = ''
 
+    // Update the local Pours-list state immediately so all controls that depend
+    // on flag_Complete (including Company/Contact editability) react at once.
+    const previousDate = { ...dateRecord }
+    allPourDates = allPourDates.map((item) =>
+      item.id === dateRecord.id
+        ? { ...item, flag_Complete: flagComplete }
+        : item
+    )
+
+    if (selectedPour?.id === dateRecord.id_Pour) {
+      dates = sortDatesByPhaseAndStart(
+        dates.map((item) =>
+          item.id === dateRecord.id
+            ? { ...item, flag_Complete: flagComplete }
+            : item
+        )
+      )
+    }
+
     const { data, error } = await supabase
       .from('Dates')
       .update({ flag_Complete: flagComplete })
       .eq('id', dateRecord.id)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .single()
 
     if (error) {
       appError = error.message
+
+      // Roll back the optimistic change if Supabase rejects the update.
+      allPourDates = allPourDates.map((item) =>
+        item.id === previousDate.id ? previousDate : item
+      )
+
+      if (selectedPour?.id === previousDate.id_Pour) {
+        dates = sortDatesByPhaseAndStart(
+          dates.map((item) =>
+            item.id === previousDate.id ? previousDate : item
+          )
+        )
+      }
     } else {
       allPourDates = allPourDates.map((item) => item.id === data.id ? data : item)
+
       if (selectedPour?.id === data.id_Pour) {
         dates = sortDatesByPhaseAndStart(
           dates.map((item) => item.id === data.id ? data : item)
@@ -976,7 +1057,7 @@
           id_Pour: pour.id,
           id_Phase: phase.id
         })
-        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
         .single()
 
       if (error) {
@@ -1010,7 +1091,7 @@
       .update(updates)
       .eq('id', existing.id)
       .eq('flag_Complete', false)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .maybeSingle()
 
     if (error || !data) {
@@ -1028,12 +1109,44 @@
     savingPourListDateKey = null
   }
 
+  async function savePourListRoleAssignment(dateRecord, phase, value) {
+    if (!dateRecord || !phase || dateRecord.flag_Complete) return
+
+    const isCompany = phase.typeRole === 'Company'
+    const isContact = phase.typeRole === 'Contact'
+    if (!isCompany && !isContact) return
+
+    const updates = isCompany
+      ? { id_Company: value || null, id_Contact: null }
+      : { id_Company: null, id_Contact: value || null }
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .update(updates)
+      .eq('id', dateRecord.id)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
+      .single()
+
+    if (error) {
+      appError = error.message
+      return
+    }
+
+    allPourDates = allPourDates.map((item) => item.id === data.id ? data : item)
+
+    if (selectedPour?.id === data.id_Pour) {
+      dates = sortDatesByPhaseAndStart(
+        dates.map((item) => item.id === data.id ? data : item)
+      )
+    }
+  }
+
   async function loadDatesForPour(pourId) {
     loadingDates = true
     dateHistoryPhaseId = null
     const { data, error } = await supabase
       .from('Dates')
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .eq('id_Pour', pourId)
       .order('dateStart', { ascending: true })
 
@@ -1060,7 +1173,7 @@
     const { data, error } = await supabase
       .from('Dates')
       .insert(payload)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .single()
 
     if (error) appError = error.message
@@ -1096,7 +1209,7 @@
           id_Pour: selectedPour.id,
           id_Phase: row.phase.id
         })
-        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
         .single()
 
       if (error) {
@@ -1139,7 +1252,7 @@
       .update(updates)
       .eq('id', existing.id)
       .eq('flag_Complete', false)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .maybeSingle()
 
     if (error || !data) {
@@ -1175,6 +1288,8 @@
       dateFinish: historyDateStartInput,
       id_Pour: selectedPour.id,
       id_Phase: dateHistoryPhaseId,
+      id_Company: null,
+      id_Contact: null,
       flag_Complete: false,
       _new: true
     }]
@@ -1225,10 +1340,16 @@
       d._deleted ||
       d._new ||
       JSON.stringify({
-        dateStart: d.dateStart, dateFinish: d.dateFinish, flag_Complete: d.flag_Complete
+        dateStart: d.dateStart,
+        dateFinish: d.dateFinish,
+        id_Company: d.id_Company ?? null,
+        id_Contact: d.id_Contact ?? null,
+        flag_Complete: d.flag_Complete
       }) !== JSON.stringify({
         dateStart: original.get(d.id)?.dateStart,
         dateFinish: original.get(d.id)?.dateFinish,
+        id_Company: original.get(d.id)?.id_Company ?? null,
+        id_Contact: original.get(d.id)?.id_Contact ?? null,
         flag_Complete: original.get(d.id)?.flag_Complete
       })
     ).map((d) => ({
@@ -1237,6 +1358,8 @@
       isDeleted: !!d._deleted,
       dateStart: d.dateStart,
       dateFinish: d.dateFinish,
+      id_Company: d.id_Company ?? null,
+      id_Contact: d.id_Contact ?? null,
       flag_Complete: d.flag_Complete
     }))
     if (!changes.length) { closeDateHistory(); return }
@@ -1274,7 +1397,7 @@
       .from('Dates')
       .update({ flag_Complete: flagComplete })
       .eq('id', dateRecord.id)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, id_Company, id_Contact, flag_Complete')
       .single()
 
     if (error) appError = error.message
@@ -1363,7 +1486,7 @@
     appError = ''
     notice = ''
     if (target === 'jobs') await loadJobs()
-    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours()])
+    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies(), loadAllContacts()])
     if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
     if (target === 'companies') await Promise.all([loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
     if (target === 'roles-companies') await loadRolesCompanies()
@@ -1775,8 +1898,8 @@
             {:else if allPours.length === 0}
               <div class="empty-state compact"><h3>No Pours yet</h3><p>Create a new Pour here, or add another stage to an existing Job.</p><button class="button primary" on:click={openPourCreate}>New Pour</button></div>
             {:else}
-              <div class="table-wrap">
-                <table>
+              <div class="table-wrap date-history-table-wrap">
+                <table class="date-history-table">
                   <thead>
                     <tr>
                       <th>Pour</th>
@@ -1791,7 +1914,7 @@
                       <tr>
                         <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openPour(pour.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openPour(pour.id)}><span class="record-link">{pourIdentifier(pour)}</span></td>
                         {#each phases as phase (phase.id)}
-                          {@const phaseDate = pourPhaseDate(pour.id, phase.id)}
+                          {@const phaseDate = pourPhaseDate(pour.id, phase.id, allPourDates)}
                           <td class="pour-list-date-cell">
                             <input
                               class="inline-date-input"
@@ -1819,6 +1942,36 @@
                               aria-label={`${pourIdentifier(pour)} ${phase.name} finish date`}
                               on:change={(event) => savePourListDate(pour, phase, 'dateFinish', event.currentTarget.value, event.currentTarget)}
                             />
+                            {#if phase.typeRole === 'Company'}
+                              <label class="pour-list-role-field">
+                                <select
+                                  value={phaseDate?.id_Company ?? ''}
+                                  disabled={!phaseDate || phaseDate.flag_Complete}
+                                  aria-label={`${pourIdentifier(pour)} ${phase.name} company`}
+                                  on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
+                                >
+                                  <option value="">{phaseDate?.flag_Complete ? '' : 'Select Company'}</option>
+                                  {#each companiesForPhase(phase) as company (company.id)}
+                                    <option value={company.id}>{company.name}</option>
+                                  {/each}
+                                </select>
+                              </label>
+                            {:else if phase.typeRole === 'Contact'}
+                              <label class="pour-list-role-field">
+                                <select
+                                  value={phaseDate?.id_Contact ?? ''}
+                                  disabled={!phaseDate || phaseDate.flag_Complete}
+                                  aria-label={`${pourIdentifier(pour)} ${phase.name} contact`}
+                                  on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
+                                >
+                                  <option value="">{phaseDate?.flag_Complete ? '' : 'Select Contact'}</option>
+                                  {#each contactsForPhase(phase) as contact (contact.id)}
+                                    <option value={contact.id}>{contactDisplayName(contact)}</option>
+                                  {/each}
+                                </select>
+                              </label>
+                            {/if}
+
                             <label class="pour-list-complete">
                               <input
                                 type="checkbox"
@@ -2332,7 +2485,7 @@
               {:else if phases.length === 0}
                 <div class="empty-state compact"><p>No Phases have been created yet.</p></div>
               {:else}
-                <div class="table-wrap"><table><thead><tr><th>Phase</th><th>Start</th><th>Finish</th><th>Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                <div class="table-wrap"><table><thead><tr><th>Phase</th><th class="date-col">Start</th><th class="date-col">Finish</th><th class="complete-col">Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
                   {#each pourPhaseRows as row (row.phase.id)}
                     <tr>
                       <td><button class="record-link" on:click={() => openPhase(row.phase.id)}>{row.phase.name}</button></td>
@@ -2453,7 +2606,19 @@
             {:else}
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Start</th><th>Finish</th><th>Complete</th><th class="actions-column">Actions</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Start</th>
+                      <th>Finish</th>
+                      <th>Complete</th>
+                      {#if dateHistoryPhase?.typeRole === 'Company'}
+                        <th class="role-col">Company</th>
+                      {:else if dateHistoryPhase?.typeRole === 'Contact'}
+                        <th class="role-col">Contact</th>
+                      {/if}
+                      <th class="actions-column">Actions</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {#each dateHistoryRecords as relatedDate (relatedDate.id)}
                       <tr>
@@ -2486,6 +2651,37 @@
                           />
                         </td>
                         <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={savingHistory} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setHistoryDateComplete(relatedDate, event.currentTarget.checked)} /></td>
+                        {#if dateHistoryPhase?.typeRole === 'Company'}
+                          <td class="role-cell">
+                            <select
+                              class="history-role-select"
+                              value={relatedDate.id_Company ?? ''}
+                              disabled={savingHistory || relatedDate.flag_Complete}
+                              aria-label={`${phaseName(relatedDate.id_Phase)} company`}
+                              on:change={(event) => setHistoryCompany(relatedDate, event.currentTarget.value)}
+                            >
+                              <option value=""></option>
+                              {#each companiesForPhase(dateHistoryPhase) as company (company.id)}
+                                <option value={company.id}>{company.name}</option>
+                              {/each}
+                            </select>
+                          </td>
+                        {:else if dateHistoryPhase?.typeRole === 'Contact'}
+                          <td class="role-cell">
+                            <select
+                              class="history-role-select"
+                              value={relatedDate.id_Contact ?? ''}
+                              disabled={savingHistory || relatedDate.flag_Complete}
+                              aria-label={`${phaseName(relatedDate.id_Phase)} contact`}
+                              on:change={(event) => setHistoryContact(relatedDate, event.currentTarget.value)}
+                            >
+                              <option value=""></option>
+                              {#each contactsForPhase(dateHistoryPhase) as contact (contact.id)}
+                                <option value={contact.id}>{contactDisplayName(contact)}</option>
+                              {/each}
+                            </select>
+                          </td>
+                        {/if}
                         <td class="row-actions">
                           <button
                             class="icon-button danger"
