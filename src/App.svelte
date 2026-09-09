@@ -57,6 +57,8 @@
   let savingCompany = false
   let loadingCompany = false
   let selectedPhase = null
+  let draggedPhaseId = null
+  let phaseDropTargetId = null
   let phaseTypeRoleInput = ''
   let phaseRoleCompanyId = ''
   let phaseRoleContactId = ''
@@ -67,6 +69,7 @@
   let updatingPhase = false
   let phaseNameInput = ''
   let phaseSortInput = 0
+  let phaseDetailNameInput = ''
   let phaseDetailSortInput = 0
 
   let dates = []
@@ -746,32 +749,96 @@
     loadingPhases = false
   }
 
-  async function createPhase(event) {
-    if (event) event.preventDefault()
-    const name = phaseNameInput.trim()
-    const sort = Number(phaseSortInput)
-    if (!name || !Number.isInteger(sort)) return
-
+  async function createPhase() {
     creatingPhase = true
     appError = ''
-    notice = ''
+
+    const nextSort = phases.length > 0
+      ? Math.max(...phases.map((phase) => Number(phase.sort) || 0)) + 1
+      : 1
 
     const { data, error } = await supabase
       .from('Phases')
-      .insert({ name, sort })
+      .insert({
+        name: 'New Phase',
+        sort: nextSort
+      })
       .select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact')
       .single()
 
-    if (error) appError = error.message
-    else {
-      phases = [...phases, data].sort((a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name))
-      phaseNameInput = ''
-      phaseSortInput = 0
-      notice = `Phase ${data.name} created.`
+    if (error) {
+      appError = error.message
+    } else {
+      phases = [...phases, data].sort(
+        (a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name)
+      )
       await openPhase(data.id)
     }
 
     creatingPhase = false
+  }
+
+  function startPhaseDrag(phaseId) {
+    draggedPhaseId = phaseId
+    phaseDropTargetId = null
+  }
+
+  function overPhaseDrag(phaseId) {
+    if (!draggedPhaseId || draggedPhaseId === phaseId) return
+    phaseDropTargetId = phaseId
+  }
+
+  function endPhaseDrag() {
+    draggedPhaseId = null
+    phaseDropTargetId = null
+  }
+
+  async function dropPhaseOn(targetPhaseId) {
+    if (!draggedPhaseId || draggedPhaseId === targetPhaseId) {
+      endPhaseDrag()
+      return
+    }
+
+    const ordered = [...phases].sort(
+      (a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name)
+    )
+
+    const fromIndex = ordered.findIndex((phase) => phase.id === draggedPhaseId)
+    const toIndex = ordered.findIndex((phase) => phase.id === targetPhaseId)
+
+    if (fromIndex < 0 || toIndex < 0) {
+      endPhaseDrag()
+      return
+    }
+
+    const reordered = [...ordered]
+    const [moved] = reordered.splice(fromIndex, 1)
+    reordered.splice(toIndex, 0, moved)
+
+    const updatedPhases = reordered.map((phase, index) => ({
+      ...phase,
+      sort: index + 1
+    }))
+
+    phases = updatedPhases
+    appError = ''
+
+    const results = await Promise.all(
+      updatedPhases.map((phase) =>
+        supabase
+          .from('Phases')
+          .update({ sort: phase.sort })
+          .eq('id', phase.id)
+      )
+    )
+
+    const failed = results.find((result) => result.error)
+    if (failed) {
+      appError = failed.error.message
+      await loadPhases()
+    }
+
+    endPhaseDrag()
   }
 
   async function openPhase(phaseId, historyMode = 'push') {
@@ -794,6 +861,7 @@
     if (datesError) appError = datesError.message
 
     selectedPhase = phase ?? null
+    phaseDetailNameInput = phase?.name ?? ''
     phaseDetailSortInput = phase?.sort ?? 0
     phaseTypeRoleInput = phase?.typeRole ?? ''
     phaseRoleCompanyId = phase?.id_RoleCompany ?? ''
@@ -819,6 +887,7 @@
     const { data, error } = await supabase
       .from('Phases')
       .update({
+        name: phaseDetailNameInput.trim(),
         sort,
         typeRole: phaseTypeRoleInput.trim() || null,
         id_RoleCompany: phaseTypeRoleInput === 'Company' ? (phaseRoleCompanyId || null) : null,
@@ -832,6 +901,7 @@
       appError = error.message
     } else {
       selectedPhase = data
+      phaseDetailNameInput = data.name
       phases = phases
         .map((phase) => phase.id === data.id ? data : phase)
         .sort((a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name))
@@ -2023,15 +2093,14 @@
 
 {:else if view === 'phases'}
           <section class="page-heading">
-            <div><p class="eyebrow">Phases</p><h1>Phases</h1><p>Manage the reusable phases that can be assigned to Pour Dates records.</p></div>
-          </section>
-
-          <section class="panel phase-create-panel">
-            <form class="inline-create-form" on:submit={createPhase}>
-              <label class="field-label grow-field"><span>Phase name</span><input bind:value={phaseNameInput} type="text" placeholder="e.g. Preparation" required /></label>
-              <label class="field-label phase-sort-field"><span>Sort</span><input bind:value={phaseSortInput} type="number" step="1" required /></label>
-              <button class="button primary" type="submit" disabled={creatingPhase || !phaseNameInput.trim() || !Number.isInteger(Number(phaseSortInput))}><span class="plus">+</span>{creatingPhase ? 'Creating…' : 'New Phase'}</button>
-            </form>
+            <div>
+              <p class="eyebrow">Phases</p>
+              <h1>Phases</h1>
+              <p>Manage the reusable phases that can be assigned to Pour Dates records.</p>
+            </div>
+            <button class="button primary" type="button" disabled={creatingPhase} on:click={createPhase}>
+              <span class="plus">+</span>{creatingPhase ? 'Creating…' : 'New Phase'}
+            </button>
           </section>
 
           <section class="panel list-panel">
@@ -2042,9 +2111,20 @@
               <div class="empty-state compact"><h3>No Phases yet</h3><p>Create your first Phase above.</p></div>
             {:else}
               <div class="table-wrap">
-                <table><thead><tr><th>Sort</th><th>Phase</th><th class="actions-column">Actions</th></tr></thead><tbody>
-                  {#each phases as phase}
-                    <tr><td>{phase.sort}</td><td><button class="record-link" on:click={() => openPhase(phase.id)}>{phase.name}</button></td><td class="row-actions"><button class="button secondary small-button" on:click={() => openPhase(phase.id)}>Open</button></td></tr>
+                <table><thead><tr><th class="drag-column"></th><th>Phase</th></tr></thead><tbody>
+                  {#each phases as phase (phase.id)}
+                    <tr
+                      class:phase-dragging={draggedPhaseId === phase.id}
+                      class:phase-drop-target={phaseDropTargetId === phase.id && draggedPhaseId !== phase.id}
+                      draggable="true"
+                      on:dragstart={() => startPhaseDrag(phase.id)}
+                      on:dragover|preventDefault={() => overPhaseDrag(phase.id)}
+                      on:drop|preventDefault={() => dropPhaseOn(phase.id)}
+                      on:dragend={endPhaseDrag}
+                    >
+                      <td class="drag-cell"><span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span></td>
+                      <td class="phase-click-cell" on:click={() => openPhase(phase.id)}>{phase.name}</td>
+                    </tr>
                   {/each}
                 </tbody></table>
               </div>
@@ -2065,20 +2145,14 @@
               </div>
 
               <div class="phase-detail-content">
-                <div class="phase-summary-row">
-                  <div class="detail-field">
-                    <span class="detail-label">Name</span>
-                    <strong>{selectedPhase.name}</strong>
-                  </div>
-                </div>
-
                 <form class="phase-detail-form" on:submit={updatePhaseSort}>
-                  <div class="address-edit-grid phase-detail-grid">
+                  <div class="phase-summary-row">
                     <label class="field-label">
-                      <span>Sort</span>
-                      <input bind:value={phaseDetailSortInput} type="number" step="1" required />
+                      <span>Name</span>
+                      <input bind:value={phaseDetailNameInput} type="text" required />
                     </label>
-
+                  </div>
+                  <div class="address-edit-grid phase-detail-grid">
                     <label class="field-label">
                       <span>Role Type</span>
                       <select bind:value={phaseTypeRoleInput}>
@@ -2115,7 +2189,7 @@
                     <button
                       class="button primary"
                       type="submit"
-                      disabled={updatingPhase || !Number.isInteger(Number(phaseDetailSortInput))}
+                      disabled={updatingPhase || !phaseDetailNameInput.trim()}
                     >
                       {updatingPhase ? 'Saving…' : 'Save'}
                     </button>

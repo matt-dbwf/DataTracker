@@ -603,3 +603,42 @@ tbody tr:hover { background: #fcfdfe; }
     grid-template-columns: 1fr;
   }
 }
+
+.drag-column,
+.drag-cell {
+  width: 2.75rem;
+  text-align: center;
+}
+
+.drag-cell {
+  cursor: grab;
+  user-select: none;
+}
+
+.drag-cell:active {
+  cursor: grabbing;
+}
+
+.drag-handle {
+  display: inline-block;
+  line-height: 1;
+  letter-spacing: -0.18rem;
+  opacity: 0.55;
+}
+
+tr.phase-dragging {
+  opacity: 0.45;
+}
+
+tr.phase-drop-target td {
+  box-shadow: inset 0 2px 0 currentColor;
+}
+
+.phase-click-cell {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.phase-click-cell:hover {
+  text-decoration: underline;
+}
