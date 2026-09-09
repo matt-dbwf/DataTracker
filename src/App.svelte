@@ -2520,32 +2520,11 @@
             <section class="detail-heading">
               <div>
                 <p class="eyebrow">Pour details</p>
-                <h1>{selectedPour.job?.seq ?? 'Unknown'}-{selectedPour.stageNum}</h1>
-                <p class="creator-line">Created {formatDateTime(selectedPour.created_at)}{#if selectedPour.creator} by {employeeName(selectedPour.creator)}{/if}</p>
+                <h1>TAC{selectedPour.job?.seq ?? 'Unknown'}-{selectedPour.stageNum}</h1>
               </div>
             </section>
 
             <section class="panel detail-panel">
-              <div class="detail-grid">
-                <div class="detail-field">
-                  <span class="detail-label">Pour</span>
-                  <strong>{selectedPour.job?.seq ?? 'Unknown'}-{selectedPour.stageNum}</strong>
-                </div>
-                <div class="detail-field">
-                  <span class="detail-label">Job</span>
-                  {#if selectedPour.job}
-                    <button class="record-link" on:click={() => openJob(selectedPour.id_Job)}>Job {selectedPour.job.seq}</button>
-                  {:else}
-                    <strong>Unknown Job</strong>
-                  {/if}
-                </div>
-                <div class="detail-field">
-                  <span class="detail-label">Stage</span>
-                  <strong>{selectedPour.stageNum}</strong>
-                </div>
-              </div>
-
-              <div class="detail-section-divider"></div>
               <div class="panel-heading address-heading">
                 <div>
                   <p class="eyebrow">Address</p>
