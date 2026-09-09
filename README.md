@@ -76,3 +76,26 @@ The frontend assumes your Supabase RLS policies allow authenticated employees to
 ## Phases and Dates UI
 
 This version adds a Phases navigation section with list/detail/create views. Pour detail pages can create related Dates records by selecting a Phase plus start/finish dates. It expects the existing `public."Phases"` and `public."Dates"` tables and appropriate authenticated-user Supabase permissions/RLS policies.
+
+## Dates completion workflow
+
+The Pour detail Dates list uses `Dates.flag_Complete`.
+
+- Only incomplete Dates are displayed.
+- Only the earliest incomplete Date per Phase is shown.
+- Display order is Phase `sort` ascending, then `dateStart` ascending.
+- Checking Complete updates `flag_Complete` to `true`; the next incomplete Date for that Phase then becomes visible automatically.
+
+Required database migration (run once if not already applied):
+
+```sql
+begin;
+alter table public."Dates"
+add column if not exists "flag_Complete" boolean not null default false;
+commit;
+```
+
+## Pour detail Date history
+
+The Dates table on Pour detail shows the first incomplete Date per Phase by default. Use **Show All** on a Date row to expand every Date for the same Pour + Phase combination, including completed records. Expanded history is ordered by `dateStart`.
+

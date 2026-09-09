@@ -39,12 +39,14 @@
   let phaseDetailSortInput = 0
 
   let dates = []
+  let dateHistoryPhaseId = null
   let loadingDates = false
   let creatingDate = false
   let dateStartInput = ''
   let dateFinishInput = ''
   let datePhaseInput = ''
   let deletingDateId = null
+  let completingDateId = null
 
   let showPourCreate = false
   let pourCreateMode = ''
@@ -80,6 +82,39 @@
     const seq = getJob(pour.id_Job)?.seq
     return seq == null ? `Unknown Job-${pour.stageNum}` : `${seq}-${pour.stageNum}`
   }
+  $: visibleDates = (() => {
+    const seenPhases = new Set()
+    return sortDatesByPhaseAndStart(dates)
+      .filter((dateRecord) => !dateRecord.flag_Complete)
+      .filter((dateRecord) => {
+        if (seenPhases.has(dateRecord.id_Phase)) return false
+        seenPhases.add(dateRecord.id_Phase)
+        return true
+      })
+  })()
+
+  $: dateHistoryRecords = dateHistoryPhaseId
+    ? [...dates]
+        .filter((dateRecord) =>
+          dateRecord.id_Pour === selectedPour?.id &&
+          dateRecord.id_Phase === dateHistoryPhaseId
+        )
+        .sort((a, b) =>
+          Number(a.flag_Complete) - Number(b.flag_Complete) ||
+          a.dateStart.localeCompare(b.dateStart) ||
+          (a.dateFinish ?? '').localeCompare(b.dateFinish ?? '') ||
+          a.id.localeCompare(b.id)
+        )
+    : []
+
+  function openDateHistory(phaseId) {
+    dateHistoryPhaseId = phaseId
+  }
+
+  function closeDateHistory() {
+    dateHistoryPhaseId = null
+  }
+
   $: sortedAllPours = [...allPours].sort((a, b) => {
     const aSeq = Number(getJob(a.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
     const bSeq = Number(getJob(b.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
@@ -246,7 +281,7 @@
 
     const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
       supabase.from('Phases').select('id, name, sort').eq('id', phaseId).single(),
-      supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
+      supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
     ])
 
     if (phaseError) appError = phaseError.message
@@ -294,9 +329,10 @@
 
   async function loadDatesForPour(pourId) {
     loadingDates = true
+    dateHistoryPhaseId = null
     const { data, error } = await supabase
       .from('Dates')
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
       .eq('id_Pour', pourId)
       .order('dateStart', { ascending: true })
 
@@ -323,7 +359,7 @@
     const { data, error } = await supabase
       .from('Dates')
       .insert(payload)
-      .select('id, dateStart, dateFinish, id_Pour, id_Phase')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
       .single()
 
     if (error) appError = error.message
@@ -336,6 +372,29 @@
     }
 
     creatingDate = false
+  }
+
+  async function setDateComplete(dateRecord, flagComplete) {
+    completingDateId = dateRecord.id
+    appError = ''
+    notice = ''
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .update({ flag_Complete: flagComplete })
+      .eq('id', dateRecord.id)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .single()
+
+    if (error) appError = error.message
+    else {
+      dates = sortDatesByPhaseAndStart(
+        dates.map((item) => item.id === data.id ? data : item)
+      )
+      notice = flagComplete ? 'Date record marked complete.' : 'Date record marked incomplete.'
+    }
+
+    completingDateId = null
   }
 
   async function deleteDate(dateRecord) {
@@ -851,7 +910,7 @@
 
 
             <section class="panel dates-panel">
-              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{dates.length}</span></div>
+              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{visibleDates.length}</span></div>
               <form class="date-create-form" on:submit={createDate}>
                 <label class="field-label"><span>Phase</span><select bind:value={datePhaseInput} required><option value="" disabled>Select a phase…</option>{#each phases as phase}<option value={phase.id}>{phase.name}</option>{/each}</select></label>
                 <label class="field-label"><span>Start date</span><input bind:value={dateStartInput} type="date" required /></label>
@@ -861,12 +920,21 @@
               {#if phases.length === 0}<div class="inline-note">Create a Phase first before adding Dates records.</div>{/if}
               {#if loadingDates}
                 <div class="panel-loading">Loading dates…</div>
-              {:else if dates.length === 0}
-                <div class="empty-state compact"><p>No Dates records have been added to this Pour.</p></div>
+              {:else if visibleDates.length === 0}
+                <div class="empty-state compact"><p>No incomplete Dates records are available for this Pour.</p></div>
               {:else}
-                <div class="table-wrap"><table><thead><tr><th>Phase</th><th>Start</th><th>Finish</th><th class="actions-column">Actions</th></tr></thead><tbody>
-                  {#each dates as dateRecord}
-                    <tr><td><button class="record-link" on:click={() => openPhase(dateRecord.id_Phase)}>{phaseName(dateRecord.id_Phase)}</button></td><td>{dateRecord.dateStart}</td><td>{dateRecord.dateFinish || '—'}</td><td class="row-actions"><button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === dateRecord.id} on:click={() => deleteDate(dateRecord)}>{deletingDateId === dateRecord.id ? '…' : '×'}</button></td></tr>
+                <div class="table-wrap"><table><thead><tr><th>Phase</th><th>Start</th><th>Finish</th><th>Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                  {#each visibleDates as dateRecord}
+                    <tr>
+                      <td><button class="record-link" on:click={() => openPhase(dateRecord.id_Phase)}>{phaseName(dateRecord.id_Phase)}</button></td>
+                      <td>{dateRecord.dateStart}</td>
+                      <td>{dateRecord.dateFinish || '—'}</td>
+                      <td><input type="checkbox" checked={dateRecord.flag_Complete} disabled={completingDateId === dateRecord.id} aria-label={`Mark ${phaseName(dateRecord.id_Phase)} date complete`} on:change={(event) => setDateComplete(dateRecord, event.currentTarget.checked)} /></td>
+                      <td class="row-actions date-row-actions">
+                        <button class="button secondary compact-button" type="button" on:click={() => openDateHistory(dateRecord.id_Phase)}>Show All</button>
+                        <button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === dateRecord.id || completingDateId === dateRecord.id} on:click={() => deleteDate(dateRecord)}>{deletingDateId === dateRecord.id ? '…' : '×'}</button>
+                      </td>
+                    </tr>
                   {/each}
                 </tbody></table></div>
               {/if}
@@ -896,6 +964,44 @@
         {/if}
       </main>
     </div>
+
+    {#if dateHistoryPhaseId}
+      <div class="modal-backdrop" role="presentation" on:click={closeDateHistory}>
+        <section class="modal-card date-history-modal" role="dialog" aria-modal="true" aria-labelledby="date-history-title" on:click|stopPropagation>
+          <div class="modal-heading">
+            <div>
+              <p class="eyebrow">Date history</p>
+              <h2 id="date-history-title">{phaseName(dateHistoryPhaseId)}</h2>
+              <p>All Dates for Pour {selectedPour ? pourIdentifier(selectedPour) : ''} and this Phase.</p>
+            </div>
+            <button class="modal-close" type="button" aria-label="Close date history" on:click={closeDateHistory}>×</button>
+          </div>
+          <div class="modal-body">
+            {#if dateHistoryRecords.length === 0}
+              <div class="empty-state compact"><p>No Dates records found for this Pour and Phase.</p></div>
+            {:else}
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Start</th><th>Finish</th><th>Complete</th></tr></thead>
+                  <tbody>
+                    {#each dateHistoryRecords as relatedDate (relatedDate.id)}
+                      <tr>
+                        <td>{relatedDate.dateStart}</td>
+                        <td>{relatedDate.dateFinish || '—'}</td>
+                        <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={completingDateId === relatedDate.id} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setDateComplete(relatedDate, event.currentTarget.checked)} /></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+            <div class="modal-actions">
+              <button class="button secondary" type="button" on:click={closeDateHistory}>Close</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    {/if}
 
     {#if showPourCreate}
       <div class="modal-backdrop" role="presentation" on:click={closePourCreate}>

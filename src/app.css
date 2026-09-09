@@ -204,3 +204,13 @@ tbody tr:hover { background: #fcfdfe; }
   .phase-sort-form { align-items: stretch; flex-direction: column; }
   .phase-sort-form .button { align-self: flex-start; }
 }
+
+
+.date-row-actions { gap: .5rem; }
+.compact-button { min-height: 34px; padding: .4rem .7rem; font-size: .78rem; white-space: nowrap; }
+@media (max-width: 700px) {
+  .date-row-actions { min-width: 145px; }
+}
+
+.complete-status { color: #39704d; font-weight: 700; }
+.date-history-modal { width: min(720px, calc(100vw - 2rem)); }
