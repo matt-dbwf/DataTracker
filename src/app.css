@@ -554,3 +554,52 @@ tbody tr:hover { background: #fcfdfe; }
 .role-option input {
   width: auto;
 }
+
+.phase-detail-panel {
+  overflow: hidden;
+}
+
+.phase-detail-heading {
+  padding-bottom: 1rem;
+}
+
+.phase-detail-heading h2 {
+  margin-bottom: 0;
+}
+
+.phase-detail-content {
+  padding-top: 0.25rem;
+}
+
+.phase-summary-row {
+  padding: 0.25rem 0 1.25rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  margin-bottom: 1.25rem;
+}
+
+.phase-summary-row .detail-field {
+  margin: 0;
+}
+
+.phase-detail-form {
+  margin: 0;
+}
+
+.phase-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem 1.5rem;
+}
+
+.phase-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1.25rem;
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+@media (max-width: 700px) {
+  .phase-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

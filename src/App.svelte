@@ -57,6 +57,9 @@
   let savingCompany = false
   let loadingCompany = false
   let selectedPhase = null
+  let phaseTypeRoleInput = ''
+  let phaseRoleCompanyId = ''
+  let phaseRoleContactId = ''
   let phaseDates = []
   let loadingPhases = false
   let loadingPhase = false
@@ -734,7 +737,7 @@
 
     const { data, error } = await supabase
       .from('Phases')
-      .select('id, name, sort')
+      .select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact')
       .order('sort', { ascending: true })
       .order('name', { ascending: true })
 
@@ -756,7 +759,7 @@
     const { data, error } = await supabase
       .from('Phases')
       .insert({ name, sort })
-      .select('id, name, sort')
+      .select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact')
       .single()
 
     if (error) appError = error.message
@@ -783,7 +786,7 @@
     phaseDates = []
 
     const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
-      supabase.from('Phases').select('id, name, sort').eq('id', phaseId).single(),
+      supabase.from('Phases').select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact').eq('id', phaseId).single(),
       supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
     ])
 
@@ -792,6 +795,9 @@
 
     selectedPhase = phase ?? null
     phaseDetailSortInput = phase?.sort ?? 0
+    phaseTypeRoleInput = phase?.typeRole ?? ''
+    phaseRoleCompanyId = phase?.id_RoleCompany ?? ''
+    phaseRoleContactId = phase?.id_RoleContact ?? ''
     phaseDates = dateRows ?? []
     loadingPhase = false
   }
@@ -812,9 +818,14 @@
 
     const { data, error } = await supabase
       .from('Phases')
-      .update({ sort })
+      .update({
+        sort,
+        typeRole: phaseTypeRoleInput.trim() || null,
+        id_RoleCompany: phaseTypeRoleInput === 'Company' ? (phaseRoleCompanyId || null) : null,
+        id_RoleContact: phaseTypeRoleInput === 'Contact' ? (phaseRoleContactId || null) : null
+      })
       .eq('id', selectedPhase.id)
-      .select('id, name, sort')
+      .select('id, name, sort, typeRole, id_RoleCompany, id_RoleContact')
       .single()
 
     if (error) {
@@ -824,7 +835,7 @@
       phases = phases
         .map((phase) => phase.id === data.id ? data : phase)
         .sort((a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name))
-      notice = `Phase ${data.name} sort updated.`
+      notice = `Phase ${data.name} updated.`
     }
 
     updatingPhase = false
@@ -1278,7 +1289,7 @@
     notice = ''
     if (target === 'jobs') await loadJobs()
     if (target === 'pours') await Promise.all([loadJobs(), loadAllPours()])
-    if (target === 'phases') await loadPhases()
+    if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
     if (target === 'companies') await Promise.all([loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
     if (target === 'roles-companies') await loadRolesCompanies()
     if (target === 'roles-contacts') await loadRolesContacts()
@@ -2045,27 +2056,74 @@
             <section class="panel panel-loading">Loading phase…</section>
           {:else if selectedPhase}
             <section class="detail-heading"><div><p class="eyebrow">Phase details</p><h1>{selectedPhase.name}</h1></div></section>
-            <section class="panel detail-panel">
-              <div class="detail-grid">
-                <div class="detail-field"><span class="detail-label">Name</span><strong>{selectedPhase.name}</strong></div>
-                <form class="phase-sort-form" on:submit={updatePhaseSort}>
-                  <label class="field-label"><span>Sort</span><input bind:value={phaseDetailSortInput} type="number" step="1" required /></label>
-                  <button class="button secondary" type="submit" disabled={updatingPhase || !Number.isInteger(Number(phaseDetailSortInput))}>{updatingPhase ? 'Saving…' : 'Save sort'}</button>
+            <section class="panel detail-panel phase-detail-panel">
+              <div class="panel-heading phase-detail-heading">
+                <div>
+                  <p class="eyebrow">Phase</p>
+                  <h2>Phase configuration</h2>
+                </div>
+              </div>
+
+              <div class="phase-detail-content">
+                <div class="phase-summary-row">
+                  <div class="detail-field">
+                    <span class="detail-label">Name</span>
+                    <strong>{selectedPhase.name}</strong>
+                  </div>
+                </div>
+
+                <form class="phase-detail-form" on:submit={updatePhaseSort}>
+                  <div class="address-edit-grid phase-detail-grid">
+                    <label class="field-label">
+                      <span>Sort</span>
+                      <input bind:value={phaseDetailSortInput} type="number" step="1" required />
+                    </label>
+
+                    <label class="field-label">
+                      <span>Role Type</span>
+                      <select bind:value={phaseTypeRoleInput}>
+                        <option value=""></option>
+                        <option value="Company">Company</option>
+                        <option value="Contact">Contact</option>
+                      </select>
+                    </label>
+
+                    {#if phaseTypeRoleInput === 'Company'}
+                      <label class="field-label">
+                        <span>Company Role</span>
+                        <select bind:value={phaseRoleCompanyId}>
+                          <option value=""></option>
+                          {#each rolesCompanies as role (role.id)}
+                            <option value={role.id}>{role.name}</option>
+                          {/each}
+                        </select>
+                      </label>
+                    {:else if phaseTypeRoleInput === 'Contact'}
+                      <label class="field-label">
+                        <span>Contact Role</span>
+                        <select bind:value={phaseRoleContactId}>
+                          <option value=""></option>
+                          {#each rolesContacts as role (role.id)}
+                            <option value={role.id}>{role.name}</option>
+                          {/each}
+                        </select>
+                      </label>
+                    {/if}
+                  </div>
+
+                  <div class="phase-detail-actions">
+                    <button
+                      class="button primary"
+                      type="submit"
+                      disabled={updatingPhase || !Number.isInteger(Number(phaseDetailSortInput))}
+                    >
+                      {updatingPhase ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 </form>
               </div>
             </section>
-            <section class="panel list-panel related-panel">
-              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates using this phase</h2></div><span class="count-badge">{phaseDates.length}</span></div>
-              {#if phaseDates.length === 0}
-                <div class="empty-state compact"><p>This Phase has not been assigned to any Dates records yet.</p></div>
-              {:else}
-                <div class="table-wrap"><table><thead><tr><th>Pour</th><th>Start</th><th>Finish</th></tr></thead><tbody>
-                  {#each phaseDates as dateRecord}
-                    <tr><td>{pourIdentifier(allPours.find((p) => p.id === dateRecord.id_Pour) ?? { id_Job: '', stageNum: '?' })}</td><td>{dateRecord.dateStart}</td><td>{dateRecord.dateFinish || '—'}</td></tr>
-                  {/each}
-                </tbody></table></div>
-              {/if}
-            </section>
+            
           {/if}
         {:else if view === 'pour'}
           <button class="back-button" on:click={backToPours}>← Back to Pours</button>
