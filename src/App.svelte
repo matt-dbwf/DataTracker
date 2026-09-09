@@ -185,53 +185,123 @@
     historyError = ''
   }
 
+  function appLocation() {
+    const params = new URLSearchParams(window.location.search)
+    return {
+      view: params.get('view') || 'jobs',
+      id: params.get('id')
+    }
+  }
+
+  function writeAppLocation(targetView, recordId = null, mode = 'push') {
+    const url = new URL(window.location.href)
+    if (targetView === 'jobs') {
+      url.searchParams.delete('view')
+      url.searchParams.delete('id')
+    } else {
+      url.searchParams.set('view', targetView)
+      if (recordId) url.searchParams.set('id', recordId)
+      else url.searchParams.delete('id')
+    }
+
+    const state = { view: targetView, id: recordId }
+    if (mode === 'replace') window.history.replaceState(state, '', url)
+    else if (mode === 'push') window.history.pushState(state, '', url)
+  }
+
+  async function restoreAppLocation() {
+    if (!session || !employee) return
+
+    const location = appLocation()
+
+    if (location.view === 'job' && location.id) {
+      await openJob(location.id, 'none')
+      return
+    }
+
+    if (location.view === 'pour' && location.id) {
+      await openPour(location.id, 'none')
+      return
+    }
+
+    if (location.view === 'phase' && location.id) {
+      await openPhase(location.id, 'none')
+      return
+    }
+
+    if (['jobs', 'pours', 'phases'].includes(location.view)) {
+      await navigate(location.view, 'none')
+      return
+    }
+
+    await navigate('jobs', 'replace')
+  }
+
   $: sortedAllPours = [...allPours].sort((a, b) => {
     const aSeq = Number(getJob(a.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
     const bSeq = Number(getJob(b.id_Job)?.seq ?? Number.POSITIVE_INFINITY)
     return aSeq - bSeq || Number(a.stageNum) - Number(b.stageNum) || a.id.localeCompare(b.id)
   })
 
-  onMount(async () => {
-    if (!supabase) {
-      loading = false
-      return
+  onMount(() => {
+    let authSubscription = null
+
+    const handlePopState = () => {
+      restoreAppLocation()
     }
 
-    const { data, error } = await supabase.auth.getSession()
-    if (error) authError = error.message
-    session = data?.session ?? null
+    window.addEventListener('popstate', handlePopState)
 
-    if (session) await bootstrapApp()
-    else loading = false
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-      session = nextSession
-      if (nextSession) {
-        await bootstrapApp()
-      } else {
-        employee = null
-        jobs = []
-        allPours = []
-        phases = []
-        selectedPhase = null
-        phaseDates = []
-        dates = []
-        selectedJob = null
-        selectedPour = null
-        pours = []
-        view = 'jobs'
+    ;(async () => {
+      if (!supabase) {
         loading = false
+        return
       }
-    })
 
-    return () => listener.subscription.unsubscribe()
+      const { data, error } = await supabase.auth.getSession()
+      if (error) authError = error.message
+      session = data?.session ?? null
+
+      if (session) await bootstrapApp()
+      else loading = false
+
+      const { data: listener } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+        session = nextSession
+        if (nextSession) {
+          await bootstrapApp()
+        } else {
+          employee = null
+          jobs = []
+          allPours = []
+          phases = []
+          selectedPhase = null
+          phaseDates = []
+          dates = []
+          selectedJob = null
+          selectedPour = null
+          pours = []
+          view = 'jobs'
+          loading = false
+        }
+      })
+
+      authSubscription = listener.subscription
+    })()
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      authSubscription?.unsubscribe()
+    }
   })
 
   async function bootstrapApp() {
     loading = true
     appError = ''
     await loadEmployee()
-    if (employee) await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
+    if (employee) {
+      await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
+      await restoreAppLocation()
+    }
     loading = false
   }
 
@@ -351,7 +421,8 @@
     creatingPhase = false
   }
 
-  async function openPhase(phaseId) {
+  async function openPhase(phaseId, historyMode = 'push') {
+    writeAppLocation('phase', phaseId, historyMode)
     view = 'phase'
     loadingPhase = true
     appError = ''
@@ -772,7 +843,8 @@
     deletingDateId = null
   }
 
-  function navigate(target) {
+  async function navigate(target, historyMode = 'push') {
+    writeAppLocation(target, null, historyMode)
     view = target
     selectedJob = null
     selectedPour = null
@@ -782,9 +854,9 @@
     pours = []
     appError = ''
     notice = ''
-    if (target === 'jobs') loadJobs()
-    if (target === 'pours') Promise.all([loadJobs(), loadAllPours()])
-    if (target === 'phases') loadPhases()
+    if (target === 'jobs') await loadJobs()
+    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours()])
+    if (target === 'phases') await loadPhases()
   }
 
   async function createJob() {
@@ -809,7 +881,8 @@
     creatingJob = false
   }
 
-  async function openJob(jobId) {
+  async function openJob(jobId, historyMode = 'push') {
+    writeAppLocation('job', jobId, historyMode)
     view = 'job'
     loadingJob = true
     appError = ''
@@ -836,7 +909,8 @@
     loadingJob = false
   }
 
-  async function openPour(pourId) {
+  async function openPour(pourId, historyMode = 'push') {
+    writeAppLocation('pour', pourId, historyMode)
     view = 'pour'
     loadingPour = true
     appError = ''
