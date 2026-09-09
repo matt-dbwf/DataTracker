@@ -72,3 +72,7 @@ DataTracker follows the same principle as PSM:
 ## Important
 
 The frontend assumes your Supabase RLS policies allow authenticated employees to perform the intended Jobs and Pours operations. If RLS is enabled without policies for those tables, reads/inserts/deletes will be rejected by Supabase.
+
+## Phases and Dates UI
+
+This version adds a Phases navigation section with list/detail/create views. Pour detail pages can create related Dates records by selecting a Phase plus start/finish dates. It expects the existing `public."Phases"` and `public."Dates"` tables and appropriate authenticated-user Supabase permissions/RLS policies.

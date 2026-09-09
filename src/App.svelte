@@ -27,6 +27,22 @@
   let deletingJobId = null
   let deletingPourId = null
 
+  let phases = []
+  let selectedPhase = null
+  let phaseDates = []
+  let loadingPhases = false
+  let loadingPhase = false
+  let creatingPhase = false
+  let phaseNameInput = ''
+
+  let dates = []
+  let loadingDates = false
+  let creatingDate = false
+  let dateStartInput = ''
+  let dateFinishInput = ''
+  let datePhaseInput = ''
+  let deletingDateId = null
+
   let showPourCreate = false
   let pourCreateMode = ''
   let jobSeqInput = ''
@@ -50,6 +66,7 @@
   }
 
   const getJob = (jobId) => jobs.find((job) => job.id === jobId)
+  const phaseName = (phaseId) => phases.find((phase) => phase.id === phaseId)?.name ?? 'Unknown phase'
   const pourIdentifier = (pour) => {
     const seq = getJob(pour.id_Job)?.seq
     return seq == null ? `Unknown Job-${pour.stageNum}` : `${seq}-${pour.stageNum}`
@@ -81,6 +98,10 @@
         employee = null
         jobs = []
         allPours = []
+        phases = []
+        selectedPhase = null
+        phaseDates = []
+        dates = []
         selectedJob = null
         selectedPour = null
         pours = []
@@ -96,7 +117,7 @@
     loading = true
     appError = ''
     await loadEmployee()
-    if (employee) await Promise.all([loadJobs(), loadAllPours()])
+    if (employee) await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
     loading = false
   }
 
@@ -162,15 +183,139 @@
     loadingPours = false
   }
 
+
+  async function loadPhases() {
+    loadingPhases = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Phases')
+      .select('id, name')
+      .order('name', { ascending: true })
+
+    if (error) appError = error.message
+    else phases = data ?? []
+    loadingPhases = false
+  }
+
+  async function createPhase(event) {
+    if (event) event.preventDefault()
+    const name = phaseNameInput.trim()
+    if (!name) return
+
+    creatingPhase = true
+    appError = ''
+    notice = ''
+
+    const { data, error } = await supabase
+      .from('Phases')
+      .insert({ name })
+      .select('id, name')
+      .single()
+
+    if (error) appError = error.message
+    else {
+      phases = [...phases, data].sort((a, b) => a.name.localeCompare(b.name))
+      phaseNameInput = ''
+      notice = `Phase ${data.name} created.`
+      await openPhase(data.id)
+    }
+
+    creatingPhase = false
+  }
+
+  async function openPhase(phaseId) {
+    view = 'phase'
+    loadingPhase = true
+    appError = ''
+    notice = ''
+    selectedPhase = null
+    phaseDates = []
+
+    const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
+      supabase.from('Phases').select('id, name').eq('id', phaseId).single(),
+      supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
+    ])
+
+    if (phaseError) appError = phaseError.message
+    if (datesError) appError = datesError.message
+
+    selectedPhase = phase ?? null
+    phaseDates = dateRows ?? []
+    loadingPhase = false
+  }
+
+  async function loadDatesForPour(pourId) {
+    loadingDates = true
+    const { data, error } = await supabase
+      .from('Dates')
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase')
+      .eq('id_Pour', pourId)
+      .order('dateStart', { ascending: true })
+
+    if (error) appError = error.message
+    else dates = data ?? []
+    loadingDates = false
+  }
+
+  async function createDate(event) {
+    event.preventDefault()
+    if (!selectedPour || !dateStartInput || !datePhaseInput) return
+
+    creatingDate = true
+    appError = ''
+    notice = ''
+
+    const payload = {
+      dateStart: dateStartInput,
+      dateFinish: dateFinishInput || null,
+      id_Pour: selectedPour.id,
+      id_Phase: datePhaseInput
+    }
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .insert(payload)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase')
+      .single()
+
+    if (error) appError = error.message
+    else {
+      dates = [...dates, data].sort((a, b) => a.dateStart.localeCompare(b.dateStart))
+      dateStartInput = ''
+      dateFinishInput = ''
+      datePhaseInput = ''
+      notice = 'Date record created.'
+    }
+
+    creatingDate = false
+  }
+
+  async function deleteDate(dateRecord) {
+    if (!confirm('Delete this Dates record? This cannot be undone.')) return
+    deletingDateId = dateRecord.id
+    appError = ''
+
+    const { error } = await supabase.from('Dates').delete().eq('id', dateRecord.id)
+    if (error) appError = error.message
+    else dates = dates.filter((item) => item.id !== dateRecord.id)
+
+    deletingDateId = null
+  }
+
   function navigate(target) {
     view = target
     selectedJob = null
     selectedPour = null
+    selectedPhase = null
+    phaseDates = []
+    dates = []
     pours = []
     appError = ''
     notice = ''
     if (target === 'jobs') loadJobs()
     if (target === 'pours') Promise.all([loadJobs(), loadAllPours()])
+    if (target === 'phases') loadPhases()
   }
 
   async function createJob() {
@@ -255,6 +400,8 @@
     }
 
     selectedPour = { ...pour, job: parentJob }
+    await loadPhases()
+    await loadDatesForPour(pour.id)
     loadingPour = false
   }
 
@@ -480,6 +627,9 @@
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>
           <span class="nav-icon">◫</span><span>Pours</span>
         </button>
+        <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>
+          <span class="nav-icon">◇</span><span>Phases</span>
+        </button>
       </nav>
 
       <div class="sidebar-user">
@@ -497,6 +647,7 @@
       <nav class="mobile-nav" aria-label="Mobile navigation">
         <button class:active={view === 'jobs' || view === 'job'} on:click={() => navigate('jobs')}>Jobs</button>
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
+        <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
       </nav>
 
       <main class="content">
@@ -559,6 +710,57 @@
               </div>
             {/if}
           </section>
+
+        {:else if view === 'phases'}
+          <section class="page-heading">
+            <div><p class="eyebrow">Phases</p><h1>Phases</h1><p>Manage the reusable phases that can be assigned to Pour Dates records.</p></div>
+          </section>
+
+          <section class="panel phase-create-panel">
+            <form class="inline-create-form" on:submit={createPhase}>
+              <label class="field-label grow-field"><span>Phase name</span><input bind:value={phaseNameInput} type="text" placeholder="e.g. Preparation" required /></label>
+              <button class="button primary" type="submit" disabled={creatingPhase || !phaseNameInput.trim()}><span class="plus">+</span>{creatingPhase ? 'Creating…' : 'New Phase'}</button>
+            </form>
+          </section>
+
+          <section class="panel list-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Phase register</p><h2>All phases</h2></div><span class="count-badge">{phases.length}</span></div>
+            {#if loadingPhases}
+              <div class="panel-loading">Loading phases…</div>
+            {:else if phases.length === 0}
+              <div class="empty-state compact"><h3>No Phases yet</h3><p>Create your first Phase above.</p></div>
+            {:else}
+              <div class="table-wrap">
+                <table><thead><tr><th>Phase</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                  {#each phases as phase}
+                    <tr><td><button class="record-link" on:click={() => openPhase(phase.id)}>{phase.name}</button></td><td class="row-actions"><button class="button secondary small-button" on:click={() => openPhase(phase.id)}>Open</button></td></tr>
+                  {/each}
+                </tbody></table>
+              </div>
+            {/if}
+          </section>
+        {:else if view === 'phase'}
+          <button class="back-button" on:click={() => navigate('phases')}>← Back to Phases</button>
+          {#if loadingPhase}
+            <section class="panel panel-loading">Loading phase…</section>
+          {:else if selectedPhase}
+            <section class="detail-heading"><div><p class="eyebrow">Phase details</p><h1>{selectedPhase.name}</h1></div></section>
+            <section class="panel detail-panel">
+              <div class="detail-grid single-detail-grid"><div class="detail-field"><span class="detail-label">Name</span><strong>{selectedPhase.name}</strong></div></div>
+            </section>
+            <section class="panel list-panel related-panel">
+              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates using this phase</h2></div><span class="count-badge">{phaseDates.length}</span></div>
+              {#if phaseDates.length === 0}
+                <div class="empty-state compact"><p>This Phase has not been assigned to any Dates records yet.</p></div>
+              {:else}
+                <div class="table-wrap"><table><thead><tr><th>Pour</th><th>Start</th><th>Finish</th></tr></thead><tbody>
+                  {#each phaseDates as dateRecord}
+                    <tr><td>{pourIdentifier(allPours.find((p) => p.id === dateRecord.id_Pour) ?? { id_Job: '', stageNum: '?' })}</td><td>{dateRecord.dateStart}</td><td>{dateRecord.dateFinish || '—'}</td></tr>
+                  {/each}
+                </tbody></table></div>
+              {/if}
+            </section>
+          {/if}
         {:else if view === 'pour'}
           <button class="back-button" on:click={backToPours}>← Back to Pours</button>
           {#if loadingPour}
@@ -591,6 +793,29 @@
                   <strong>{selectedPour.stageNum}</strong>
                 </div>
               </div>
+            </section>
+
+
+            <section class="panel dates-panel">
+              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{dates.length}</span></div>
+              <form class="date-create-form" on:submit={createDate}>
+                <label class="field-label"><span>Phase</span><select bind:value={datePhaseInput} required><option value="" disabled>Select a phase…</option>{#each phases as phase}<option value={phase.id}>{phase.name}</option>{/each}</select></label>
+                <label class="field-label"><span>Start date</span><input bind:value={dateStartInput} type="date" required /></label>
+                <label class="field-label"><span>Finish date</span><input bind:value={dateFinishInput} type="date" min={dateStartInput || undefined} /></label>
+                <button class="button primary date-add-button" type="submit" disabled={creatingDate || !datePhaseInput || !dateStartInput}>{creatingDate ? 'Adding…' : 'Add Date'}</button>
+              </form>
+              {#if phases.length === 0}<div class="inline-note">Create a Phase first before adding Dates records.</div>{/if}
+              {#if loadingDates}
+                <div class="panel-loading">Loading dates…</div>
+              {:else if dates.length === 0}
+                <div class="empty-state compact"><p>No Dates records have been added to this Pour.</p></div>
+              {:else}
+                <div class="table-wrap"><table><thead><tr><th>Phase</th><th>Start</th><th>Finish</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                  {#each dates as dateRecord}
+                    <tr><td><button class="record-link" on:click={() => openPhase(dateRecord.id_Phase)}>{phaseName(dateRecord.id_Phase)}</button></td><td>{dateRecord.dateStart}</td><td>{dateRecord.dateFinish || '—'}</td><td class="row-actions"><button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === dateRecord.id} on:click={() => deleteDate(dateRecord)}>{deletingDateId === dateRecord.id ? '…' : '×'}</button></td></tr>
+                  {/each}
+                </tbody></table></div>
+              {/if}
             </section>
           {/if}
         {:else if view === 'job'}
