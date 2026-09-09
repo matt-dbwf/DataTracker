@@ -33,7 +33,10 @@
   let loadingPhases = false
   let loadingPhase = false
   let creatingPhase = false
+  let updatingPhase = false
   let phaseNameInput = ''
+  let phaseSortInput = 0
+  let phaseDetailSortInput = 0
 
   let dates = []
   let loadingDates = false
@@ -67,6 +70,12 @@
 
   const getJob = (jobId) => jobs.find((job) => job.id === jobId)
   const phaseName = (phaseId) => phases.find((phase) => phase.id === phaseId)?.name ?? 'Unknown phase'
+  const phaseSort = (phaseId) => Number(phases.find((phase) => phase.id === phaseId)?.sort ?? Number.POSITIVE_INFINITY)
+  const sortDatesByPhaseAndStart = (rows) => [...rows].sort((a, b) =>
+    phaseSort(a.id_Phase) - phaseSort(b.id_Phase) ||
+    a.dateStart.localeCompare(b.dateStart) ||
+    a.id.localeCompare(b.id)
+  )
   const pourIdentifier = (pour) => {
     const seq = getJob(pour.id_Job)?.seq
     return seq == null ? `Unknown Job-${pour.stageNum}` : `${seq}-${pour.stageNum}`
@@ -190,7 +199,8 @@
 
     const { data, error } = await supabase
       .from('Phases')
-      .select('id, name')
+      .select('id, name, sort')
+      .order('sort', { ascending: true })
       .order('name', { ascending: true })
 
     if (error) appError = error.message
@@ -201,7 +211,8 @@
   async function createPhase(event) {
     if (event) event.preventDefault()
     const name = phaseNameInput.trim()
-    if (!name) return
+    const sort = Number(phaseSortInput)
+    if (!name || !Number.isInteger(sort)) return
 
     creatingPhase = true
     appError = ''
@@ -209,14 +220,15 @@
 
     const { data, error } = await supabase
       .from('Phases')
-      .insert({ name })
-      .select('id, name')
+      .insert({ name, sort })
+      .select('id, name, sort')
       .single()
 
     if (error) appError = error.message
     else {
-      phases = [...phases, data].sort((a, b) => a.name.localeCompare(b.name))
+      phases = [...phases, data].sort((a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name))
       phaseNameInput = ''
+      phaseSortInput = 0
       notice = `Phase ${data.name} created.`
       await openPhase(data.id)
     }
@@ -233,7 +245,7 @@
     phaseDates = []
 
     const [{ data: phase, error: phaseError }, { data: dateRows, error: datesError }] = await Promise.all([
-      supabase.from('Phases').select('id, name').eq('id', phaseId).single(),
+      supabase.from('Phases').select('id, name, sort').eq('id', phaseId).single(),
       supabase.from('Dates').select('id, dateStart, dateFinish, id_Pour, id_Phase').eq('id_Phase', phaseId).order('dateStart', { ascending: true })
     ])
 
@@ -241,8 +253,43 @@
     if (datesError) appError = datesError.message
 
     selectedPhase = phase ?? null
+    phaseDetailSortInput = phase?.sort ?? 0
     phaseDates = dateRows ?? []
     loadingPhase = false
+  }
+
+  async function updatePhaseSort(event) {
+    if (event) event.preventDefault()
+    if (!selectedPhase) return
+
+    const sort = Number(phaseDetailSortInput)
+    if (!Number.isInteger(sort)) {
+      appError = 'Sort must be a whole number.'
+      return
+    }
+
+    updatingPhase = true
+    appError = ''
+    notice = ''
+
+    const { data, error } = await supabase
+      .from('Phases')
+      .update({ sort })
+      .eq('id', selectedPhase.id)
+      .select('id, name, sort')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      selectedPhase = data
+      phases = phases
+        .map((phase) => phase.id === data.id ? data : phase)
+        .sort((a, b) => Number(a.sort) - Number(b.sort) || a.name.localeCompare(b.name))
+      notice = `Phase ${data.name} sort updated.`
+    }
+
+    updatingPhase = false
   }
 
   async function loadDatesForPour(pourId) {
@@ -254,7 +301,7 @@
       .order('dateStart', { ascending: true })
 
     if (error) appError = error.message
-    else dates = data ?? []
+    else dates = sortDatesByPhaseAndStart(data ?? [])
     loadingDates = false
   }
 
@@ -281,7 +328,7 @@
 
     if (error) appError = error.message
     else {
-      dates = [...dates, data].sort((a, b) => a.dateStart.localeCompare(b.dateStart))
+      dates = sortDatesByPhaseAndStart([...dates, data])
       dateStartInput = ''
       dateFinishInput = ''
       datePhaseInput = ''
@@ -719,7 +766,8 @@
           <section class="panel phase-create-panel">
             <form class="inline-create-form" on:submit={createPhase}>
               <label class="field-label grow-field"><span>Phase name</span><input bind:value={phaseNameInput} type="text" placeholder="e.g. Preparation" required /></label>
-              <button class="button primary" type="submit" disabled={creatingPhase || !phaseNameInput.trim()}><span class="plus">+</span>{creatingPhase ? 'Creating…' : 'New Phase'}</button>
+              <label class="field-label phase-sort-field"><span>Sort</span><input bind:value={phaseSortInput} type="number" step="1" required /></label>
+              <button class="button primary" type="submit" disabled={creatingPhase || !phaseNameInput.trim() || !Number.isInteger(Number(phaseSortInput))}><span class="plus">+</span>{creatingPhase ? 'Creating…' : 'New Phase'}</button>
             </form>
           </section>
 
@@ -731,9 +779,9 @@
               <div class="empty-state compact"><h3>No Phases yet</h3><p>Create your first Phase above.</p></div>
             {:else}
               <div class="table-wrap">
-                <table><thead><tr><th>Phase</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                <table><thead><tr><th>Sort</th><th>Phase</th><th class="actions-column">Actions</th></tr></thead><tbody>
                   {#each phases as phase}
-                    <tr><td><button class="record-link" on:click={() => openPhase(phase.id)}>{phase.name}</button></td><td class="row-actions"><button class="button secondary small-button" on:click={() => openPhase(phase.id)}>Open</button></td></tr>
+                    <tr><td>{phase.sort}</td><td><button class="record-link" on:click={() => openPhase(phase.id)}>{phase.name}</button></td><td class="row-actions"><button class="button secondary small-button" on:click={() => openPhase(phase.id)}>Open</button></td></tr>
                   {/each}
                 </tbody></table>
               </div>
@@ -746,7 +794,13 @@
           {:else if selectedPhase}
             <section class="detail-heading"><div><p class="eyebrow">Phase details</p><h1>{selectedPhase.name}</h1></div></section>
             <section class="panel detail-panel">
-              <div class="detail-grid single-detail-grid"><div class="detail-field"><span class="detail-label">Name</span><strong>{selectedPhase.name}</strong></div></div>
+              <div class="detail-grid">
+                <div class="detail-field"><span class="detail-label">Name</span><strong>{selectedPhase.name}</strong></div>
+                <form class="phase-sort-form" on:submit={updatePhaseSort}>
+                  <label class="field-label"><span>Sort</span><input bind:value={phaseDetailSortInput} type="number" step="1" required /></label>
+                  <button class="button secondary" type="submit" disabled={updatingPhase || !Number.isInteger(Number(phaseDetailSortInput))}>{updatingPhase ? 'Saving…' : 'Save sort'}</button>
+                </form>
+              </div>
             </section>
             <section class="panel list-panel related-panel">
               <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates using this phase</h2></div><span class="count-badge">{phaseDates.length}</span></div>
