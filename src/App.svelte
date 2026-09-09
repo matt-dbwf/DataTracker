@@ -25,6 +25,12 @@
   let deletingJobId = null
   let deletingPourId = null
 
+  let showPourCreate = false
+  let pourCreateMode = ''
+  let jobSeqInput = ''
+  let creatingPourFromList = false
+  let pourCreateError = ''
+
   const employeeName = (record) => {
     if (!record) return 'Unknown employee'
     return [record.nameFirst, record.nameLast].filter(Boolean).join(' ') || 'Unknown employee'
@@ -231,6 +237,110 @@
     creatingPour = false
   }
 
+  function openPourCreate() {
+    showPourCreate = true
+    pourCreateMode = ''
+    jobSeqInput = ''
+    pourCreateError = ''
+  }
+
+  function closePourCreate() {
+    if (creatingPourFromList) return
+    showPourCreate = false
+    pourCreateMode = ''
+    jobSeqInput = ''
+    pourCreateError = ''
+  }
+
+  async function createPourFromList() {
+    if (!pourCreateMode) return
+
+    creatingPourFromList = true
+    pourCreateError = ''
+    appError = ''
+    notice = ''
+
+    if (pourCreateMode === 'new') {
+      const { data: newJob, error: jobError } = await supabase
+        .from('Jobs')
+        .insert({})
+        .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+        .single()
+
+      if (jobError) {
+        pourCreateError = jobError.message
+        creatingPourFromList = false
+        return
+      }
+
+      const { data: newPour, error: pourError } = await supabase
+        .from('Pours')
+        .insert({ id_Job: newJob.id })
+        .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+        .single()
+
+      if (pourError) {
+        await supabase.from('Jobs').delete().eq('id', newJob.id)
+        pourCreateError = `The Job was created, but the Pour could not be created: ${pourError.message}`
+        creatingPourFromList = false
+        return
+      }
+
+      jobs = [newJob, ...jobs]
+      allPours = [newPour, ...allPours]
+      showPourCreate = false
+      pourCreateMode = ''
+      notice = `Job ${newJob.seq} created with Stage ${newPour.stageNum}.`
+      creatingPourFromList = false
+      return
+    }
+
+    const seq = Number(jobSeqInput)
+    if (!Number.isInteger(seq) || seq < 1) {
+      pourCreateError = 'Enter a valid Job sequence number.'
+      creatingPourFromList = false
+      return
+    }
+
+    const { data: matchedJob, error: matchError } = await supabase
+      .from('Jobs')
+      .select('id, seq, created_at, id_Employee, creator:Employees!jobs_employee_fk(id, nameFirst, nameLast)')
+      .eq('seq', seq)
+      .maybeSingle()
+
+    if (matchError) {
+      pourCreateError = matchError.message
+      creatingPourFromList = false
+      return
+    }
+
+    if (!matchedJob) {
+      pourCreateError = `No Job found with sequence #${seq}.`
+      creatingPourFromList = false
+      return
+    }
+
+    const { data: newPour, error: pourError } = await supabase
+      .from('Pours')
+      .insert({ id_Job: matchedJob.id })
+      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+      .single()
+
+    if (pourError) {
+      pourCreateError = pourError.message
+      creatingPourFromList = false
+      return
+    }
+
+    if (!jobs.some((job) => job.id === matchedJob.id)) jobs = [matchedJob, ...jobs]
+    allPours = [newPour, ...allPours]
+    showPourCreate = false
+    pourCreateMode = ''
+    jobSeqInput = ''
+    notice = `Stage ${newPour.stageNum} added to Job ${matchedJob.seq}.`
+    creatingPourFromList = false
+  }
+
   async function deletePour(pour) {
     if (!confirm(`Delete Stage ${pour.stageNum}? This cannot be undone.`)) return
 
@@ -374,6 +484,7 @@
         {:else if view === 'pours'}
           <section class="page-heading">
             <div><p class="eyebrow">Pours</p><h1>Pours</h1><p>Open any Pour directly, grouped by its parent Job and stage number.</p></div>
+            <button class="button primary" on:click={openPourCreate}><span class="plus">+</span>New Pour</button>
           </section>
 
           <section class="panel list-panel">
@@ -381,7 +492,7 @@
             {#if loadingPours}
               <div class="panel-loading">Loading pours…</div>
             {:else if allPours.length === 0}
-              <div class="empty-state compact"><h3>No Pours yet</h3><p>Add a Pour from a Job detail page and it will appear here.</p><button class="button secondary" on:click={() => navigate('jobs')}>Go to Jobs</button></div>
+              <div class="empty-state compact"><h3>No Pours yet</h3><p>Create a new Pour here, or add another stage to an existing Job.</p><button class="button primary" on:click={openPourCreate}>New Pour</button></div>
             {:else}
               <div class="table-wrap">
                 <table><thead><tr><th>Pour</th><th>Job</th><th class="actions-column">Actions</th></tr></thead><tbody>
@@ -420,5 +531,54 @@
         {/if}
       </main>
     </div>
+
+    {#if showPourCreate}
+      <div class="modal-backdrop" role="presentation" on:click={closePourCreate}>
+        <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="new-pour-title" on:click|stopPropagation>
+          <div class="modal-heading">
+            <div>
+              <p class="eyebrow">Create Pour</p>
+              <h2 id="new-pour-title">Is this a new Pour or an additional stage?</h2>
+            </div>
+            <button class="modal-close" aria-label="Close" on:click={closePourCreate} disabled={creatingPourFromList}>×</button>
+          </div>
+
+          {#if !pourCreateMode}
+            <div class="choice-grid">
+              <button class="choice-card" on:click={() => (pourCreateMode = 'new')}>
+                <strong>New Pour</strong>
+                <span>Create a new Job and automatically add Stage 1.</span>
+              </button>
+              <button class="choice-card" on:click={() => (pourCreateMode = 'stage')}>
+                <strong>Additional Stage</strong>
+                <span>Add the next stage to an existing Job.</span>
+              </button>
+            </div>
+          {:else if pourCreateMode === 'new'}
+            <div class="modal-body">
+              <p>A new Job will be created first, then its first Pour will be created as Stage 1.</p>
+              {#if pourCreateError}<div class="alert error">{pourCreateError}</div>{/if}
+              <div class="modal-actions">
+                <button class="button secondary" on:click={() => { pourCreateMode = ''; pourCreateError = '' }} disabled={creatingPourFromList}>Back</button>
+                <button class="button primary" on:click={createPourFromList} disabled={creatingPourFromList}>{creatingPourFromList ? 'Creating…' : 'Create New Pour'}</button>
+              </div>
+            </div>
+          {:else}
+            <form class="modal-body" on:submit|preventDefault={createPourFromList}>
+              <label class="field-label">
+                <span>Job seq #</span>
+                <input bind:value={jobSeqInput} type="number" min="1" step="1" inputmode="numeric" placeholder="e.g. 125" autofocus />
+              </label>
+              <p class="field-help">The Job is matched against <code>Jobs.seq</code>. The database will assign the next <code>stageNum</code>.</p>
+              {#if pourCreateError}<div class="alert error">{pourCreateError}</div>{/if}
+              <div class="modal-actions">
+                <button type="button" class="button secondary" on:click={() => { pourCreateMode = ''; pourCreateError = ''; jobSeqInput = '' }} disabled={creatingPourFromList}>Back</button>
+                <button type="submit" class="button primary" disabled={creatingPourFromList || !jobSeqInput}>{creatingPourFromList ? 'Adding…' : 'Add Stage'}</button>
+              </div>
+            </form>
+          {/if}
+        </section>
+      </div>
+    {/if}
   </div>
 {/if}
