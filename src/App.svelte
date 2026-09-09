@@ -82,6 +82,7 @@
   let dates = []
   let pourPhaseStates = []
   let savingPourPhaseId = null
+  let savingAllPourPhases = false
   let dateHistoryPhaseId = null
   let loadingDates = false
   let creatingDate = false
@@ -199,6 +200,10 @@
       flagActive: phaseState?.flag_Active ?? true
     }
   })
+
+  $: allPourPhasesSelected =
+    pourPhaseRows.length > 0 &&
+    pourPhaseRows.every((row) => row.flagActive)
 
   $: dateHistoryPhase = phases.find((phase) => phase.id === dateHistoryPhaseId) ?? null
 
@@ -1229,6 +1234,47 @@
     }
 
     savingPourPhaseId = null
+  }
+
+  async function setAllPourPhasesActive(flagActive) {
+    if (!selectedPour || savingAllPourPhases || phases.length === 0) return
+
+    savingAllPourPhases = true
+    appError = ''
+
+    const previousStates = pourPhaseStates.map((state) => ({ ...state }))
+
+    pourPhaseStates = phases.map((phase) => {
+      const existingState = previousStates.find((state) => state.id_Phase === phase.id)
+      return existingState
+        ? { ...existingState, flag_Active: flagActive }
+        : {
+            id: crypto.randomUUID(),
+            id_Pour: selectedPour.id,
+            id_Phase: phase.id,
+            flag_Active: flagActive
+          }
+    })
+
+    const rows = phases.map((phase) => ({
+      id_Pour: selectedPour.id,
+      id_Phase: phase.id,
+      flag_Active: flagActive
+    }))
+
+    const { data, error } = await supabase
+      .from('PourPhases')
+      .upsert(rows, { onConflict: 'id_Pour,id_Phase' })
+      .select('id, id_Pour, id_Phase, flag_Active')
+
+    if (error) {
+      appError = error.message
+      pourPhaseStates = previousStates
+    } else {
+      pourPhaseStates = data ?? []
+    }
+
+    savingAllPourPhases = false
   }
 
   async function loadDatesForPour(pourId) {
@@ -2575,7 +2621,12 @@
             </section>
 
             <section class="panel dates-panel">
-              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{pourPhaseRows.length}</span></div>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div>
+                <span class="count-badge">{pourPhaseRows.length}</span>
+              </div>
+
+
 
               {#if phases.length === 0}<div class="inline-note">Create a Phase first before adding Dates records.</div>{/if}
               {#if loadingDates}
@@ -2583,14 +2634,24 @@
               {:else if phases.length === 0}
                 <div class="empty-state compact"><p>No Phases have been created yet.</p></div>
               {:else}
-                <div class="table-wrap"><table><thead><tr><th class="active-col">Active</th><th>Phase</th><th class="date-col">Start</th><th class="date-col">Finish</th><th class="complete-col">Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
+                <div class="table-wrap"><table><thead><tr class="pour-phase-header-row"><th class="active-col">
+                  <div class="active-header-stack">
+                    <button
+                      class="button secondary compact-button"
+                      type="button"
+                      disabled={savingAllPourPhases || phases.length === 0}
+                      on:click={() => setAllPourPhasesActive(!allPourPhasesSelected)}
+                    >{allPourPhasesSelected ? 'Deselect All' : 'Select All'}</button>
+                    <span class="pour-phase-header-label">Active</span>
+                  </div>
+                </th><th><span class="pour-phase-header-label">Phase</span></th><th class="date-col"><span class="pour-phase-header-label">Start</span></th><th class="date-col"><span class="pour-phase-header-label">Finish</span></th><th class="complete-col"><span class="pour-phase-header-label">Complete</span></th><th class="actions-column"><span class="pour-phase-header-label">Actions</span></th></tr></thead><tbody>
                   {#each pourPhaseRows as row (row.phase.id)}
                     <tr class:inactive-phase-row={!row.flagActive}>
                       <td class="active-cell">
                         <input
                           type="checkbox"
                           checked={row.flagActive}
-                          disabled={savingPourPhaseId === row.phase.id}
+                          disabled={savingAllPourPhases || savingPourPhaseId === row.phase.id}
                           aria-label={`Set ${row.phase.name} active for this Pour`}
                           on:change={(event) => setPourPhaseActive(row, event.currentTarget.checked)}
                         />

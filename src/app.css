@@ -839,3 +839,28 @@ tr.phase-drop-target td {
 .pour-list-phase-inactive button {
   cursor: not-allowed;
 }
+
+
+.active-header-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.active-header-stack .button {
+  white-space: nowrap;
+}
+
+.pour-phase-header-row > th {
+  vertical-align: bottom;
+}
+
+.pour-phase-header-row > th:not(.active-col) {
+  padding-top: calc(0.8rem + 2.15rem + 0.4rem);
+}
+
+.pour-phase-header-label {
+  display: block;
+  line-height: 1.2;
+}
