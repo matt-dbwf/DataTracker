@@ -99,3 +99,17 @@ commit;
 
 The Dates table on Pour detail shows the first incomplete Date per Phase by default. Use **Show All** on a Date row to expand every Date for the same Pour + Phase combination, including completed records. Expanded history is ordered by `dateStart`.
 
+
+## Latest UI update
+
+On Pour detail, the Dates table now always contains one row for every Phase, ordered by Phase sort. A Phase with no Dates record yet is shown with empty date values and a disabled completion checkbox. For Phases with Dates, the row continues to show the first incomplete Date. Show All remains available for every Phase.
+
+## Inline Pour date editing
+
+On Pour detail, each Phase row has editable Start and Finish date inputs. Existing Dates records are updated directly. If a Phase row has no related Dates record, entering a Start date creates one using the current Pour and Phase relationships; the Finish date can then be edited.
+
+## Date finish default
+New Dates default dateFinish to dateStart when no finish is supplied. Inline creation sets both dates to the entered start date. Existing records are unchanged.
+
+## Date start shifting
+When an existing Date start value is changed inline on Pour detail, the app preserves the existing day gap between `dateStart` and `dateFinish` and moves `dateFinish` by the same amount. This allows the new start date to be entered even when it is later than the old finish date.

@@ -214,3 +214,48 @@ tbody tr:hover { background: #fcfdfe; }
 
 .complete-status { color: #39704d; font-weight: 700; }
 .date-history-modal { width: min(720px, calc(100vw - 2rem)); }
+
+
+.inline-date-input {
+  width: 148px;
+  min-height: 36px;
+  padding: .35rem .55rem;
+  border: 1px solid #d9dfe5;
+  border-radius: 8px;
+  outline: none;
+  color: #1f2937;
+  background: #fff;
+  font: inherit;
+}
+.inline-date-input:focus { border-color: #78889b; box-shadow: 0 0 0 3px rgba(72,88,106,.09); }
+.inline-date-input:disabled { color: #8a94a1; background: #f4f6f8; cursor: not-allowed; }
+
+
+.modal-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.history-date-create {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.history-date-create .field-label {
+  flex: 1;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .history-date-create {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -47,6 +47,15 @@
   let datePhaseInput = ''
   let deletingDateId = null
   let completingDateId = null
+  let savingInlineDateKey = null
+  let savingHistoryDateKey = null
+  let showHistoryDateCreate = false
+  let historyDateStartInput = ''
+  let creatingHistoryDate = false
+  let historyDraft = []
+  let historyOriginal = []
+  let savingHistory = false
+  let historyError = ''
 
   let showPourCreate = false
   let pourCreateMode = ''
@@ -78,23 +87,43 @@
     a.dateStart.localeCompare(b.dateStart) ||
     a.id.localeCompare(b.id)
   )
+  const daysBetweenDates = (start, finish) => {
+    if (!start || !finish) return null
+    const startMs = Date.parse(`${start}T00:00:00Z`)
+    const finishMs = Date.parse(`${finish}T00:00:00Z`)
+    return Math.round((finishMs - startMs) / 86400000)
+  }
+  const addDaysToDate = (dateValue, days) => {
+    const date = new Date(`${dateValue}T00:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + days)
+    return date.toISOString().slice(0, 10)
+  }
   const pourIdentifier = (pour) => {
     const seq = getJob(pour.id_Job)?.seq
     return seq == null ? `Unknown Job-${pour.stageNum}` : `${seq}-${pour.stageNum}`
   }
-  $: visibleDates = (() => {
-    const seenPhases = new Set()
-    return sortDatesByPhaseAndStart(dates)
-      .filter((dateRecord) => !dateRecord.flag_Complete)
-      .filter((dateRecord) => {
-        if (seenPhases.has(dateRecord.id_Phase)) return false
-        seenPhases.add(dateRecord.id_Phase)
-        return true
-      })
-  })()
+  $: visibleDates = phases
+    .map((phase) => {
+      const relatedDates = sortDatesByPhaseAndStart(
+        dates.filter((dateRecord) => dateRecord.id_Phase === phase.id)
+      )
+
+      const firstIncomplete = relatedDates.find((dateRecord) => !dateRecord.flag_Complete)
+      if (firstIncomplete) return firstIncomplete
+
+      return relatedDates.length > 0
+        ? relatedDates[relatedDates.length - 1]
+        : null
+    })
+    .filter(Boolean)
+
+  $: pourPhaseRows = phases.map((phase) => ({
+    phase,
+    dateRecord: visibleDates.find((dateRecord) => dateRecord.id_Phase === phase.id) ?? null
+  }))
 
   $: dateHistoryRecords = dateHistoryPhaseId
-    ? [...dates]
+    ? [...historyDraft]
         .filter((dateRecord) =>
           dateRecord.id_Pour === selectedPour?.id &&
           dateRecord.id_Phase === dateHistoryPhaseId
@@ -109,10 +138,21 @@
 
   function openDateHistory(phaseId) {
     dateHistoryPhaseId = phaseId
+    historyOriginal = dates.filter((d) => d.id_Pour === selectedPour?.id && d.id_Phase === phaseId).map((d) => ({ ...d }))
+    historyDraft = historyOriginal.map((d) => ({ ...d }))
+    showHistoryDateCreate = false
+    historyDateStartInput = ''
+    historyError = ''
   }
 
   function closeDateHistory() {
+    if (savingHistory) return
     dateHistoryPhaseId = null
+    historyDraft = []
+    historyOriginal = []
+    showHistoryDateCreate = false
+    historyDateStartInput = ''
+    historyError = ''
   }
 
   $: sortedAllPours = [...allPours].sort((a, b) => {
@@ -351,7 +391,7 @@
 
     const payload = {
       dateStart: dateStartInput,
-      dateFinish: dateFinishInput || null,
+      dateFinish: dateFinishInput || dateStartInput,
       id_Pour: selectedPour.id,
       id_Phase: datePhaseInput
     }
@@ -372,6 +412,173 @@
     }
 
     creatingDate = false
+  }
+
+  async function saveInlineDate(row, field, value, inputElement) {
+    if (!selectedPour) return
+
+    const existing = row.dateRecord
+    const key = `${row.phase.id}:${field}`
+    appError = ''
+    notice = ''
+
+    if (!existing) {
+      if (field !== 'dateStart') return
+      if (!value) return
+
+      savingInlineDateKey = key
+      const { data, error } = await supabase
+        .from('Dates')
+        .insert({
+          dateStart: value,
+          dateFinish: value,
+          id_Pour: selectedPour.id,
+          id_Phase: row.phase.id
+        })
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .single()
+
+      if (error) {
+        appError = error.message
+        if (inputElement) inputElement.value = ''
+      } else {
+        dates = sortDatesByPhaseAndStart([...dates, data])
+        notice = `${row.phase.name} date created.`
+      }
+      savingInlineDateKey = null
+      return
+    }
+
+    if (existing.flag_Complete) {
+      if (inputElement) inputElement.value = existing[field] || ''
+      return
+    }
+
+    if (field === 'dateStart' && !value) {
+      appError = 'Start date cannot be blank.'
+      if (inputElement) inputElement.value = existing.dateStart
+      return
+    }
+
+    savingInlineDateKey = key
+
+    let updates = { [field]: value || null }
+    if (field === 'dateStart') {
+      const existingGap = daysBetweenDates(existing.dateStart, existing.dateFinish)
+      if (existingGap !== null) {
+        updates = {
+          dateStart: value,
+          dateFinish: addDaysToDate(value, existingGap)
+        }
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .update(updates)
+      .eq('id', existing.id)
+      .eq('flag_Complete', false)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .maybeSingle()
+
+    if (error || !data) {
+      appError = error?.message || 'This Date is complete or is no longer available for editing.'
+      if (inputElement) inputElement.value = existing[field] || ''
+    } else {
+      dates = sortDatesByPhaseAndStart(
+        dates.map((item) => item.id === data.id ? data : item)
+      )
+      notice = `${row.phase.name} date updated.`
+    }
+    savingInlineDateKey = null
+  }
+
+  function openDatePicker(event) {
+    const input = event.currentTarget
+    if (input.disabled) return
+    if (typeof input.showPicker === 'function') {
+      try {
+        input.showPicker()
+      } catch (error) {
+        // Keep the native date control usable when the browser declines.
+      }
+    }
+  }
+
+  function createHistoryDate(event) {
+    event?.preventDefault()
+    if (!selectedPour || !dateHistoryPhaseId || !historyDateStartInput) return
+    historyDraft = [...historyDraft, {
+      id: crypto.randomUUID(),
+      dateStart: historyDateStartInput,
+      dateFinish: historyDateStartInput,
+      id_Pour: selectedPour.id,
+      id_Phase: dateHistoryPhaseId,
+      flag_Complete: false,
+      _new: true
+    }]
+    historyDateStartInput = ''
+    showHistoryDateCreate = false
+    historyError = ''
+  }
+
+  function saveHistoryDate(dateRecord, field, value, inputElement) {
+    if (dateRecord.flag_Complete || savingHistory) return
+    if (field === 'dateStart' && !value) {
+      historyError = 'Start date cannot be blank.'
+      if (inputElement) inputElement.value = dateRecord.dateStart
+      return
+    }
+    let updates = { [field]: value || null }
+    if (field === 'dateStart') {
+      const gap = daysBetweenDates(dateRecord.dateStart, dateRecord.dateFinish)
+      if (gap !== null) updates.dateFinish = addDaysToDate(value, gap)
+    }
+    historyDraft = historyDraft.map((d) => d.id === dateRecord.id ? { ...d, ...updates } : d)
+    historyError = ''
+  }
+
+  function setHistoryDateComplete(dateRecord, complete) {
+    if (savingHistory) return
+    historyDraft = historyDraft.map((d) => d.id === dateRecord.id ? { ...d, flag_Complete: complete } : d)
+  }
+
+  async function saveDateHistory() {
+    if (savingHistory || !selectedPour || !dateHistoryPhaseId) return
+    const original = new Map(historyOriginal.map((d) => [d.id, d]))
+    const changes = historyDraft.filter((d) => d._new || JSON.stringify({
+      dateStart: d.dateStart, dateFinish: d.dateFinish, flag_Complete: d.flag_Complete
+    }) !== JSON.stringify({
+      dateStart: original.get(d.id)?.dateStart,
+      dateFinish: original.get(d.id)?.dateFinish,
+      flag_Complete: original.get(d.id)?.flag_Complete
+    })).map((d) => ({
+      id: d.id,
+      isNew: !!d._new,
+      dateStart: d.dateStart,
+      dateFinish: d.dateFinish,
+      flag_Complete: d.flag_Complete
+    }))
+    if (!changes.length) { closeDateHistory(); return }
+    savingHistory = true
+    historyError = ''
+    const { data, error } = await supabase.rpc('save_date_history', {
+      p_pour_id: selectedPour.id,
+      p_phase_id: dateHistoryPhaseId,
+      p_changes: changes
+    })
+    if (error) {
+      historyError = error.message
+    } else {
+      dates = sortDatesByPhaseAndStart([
+        ...dates.filter((d) => !(d.id_Pour === selectedPour.id && d.id_Phase === dateHistoryPhaseId)),
+        ...data
+      ])
+      savingHistory = false
+      closeDateHistory()
+      return
+    }
+    savingHistory = false
   }
 
   async function setDateComplete(dateRecord, flagComplete) {
@@ -758,7 +965,6 @@
 
       <main class="content">
         {#if appError}<div class="alert error top-alert">{appError}</div>{/if}
-        {#if notice}<div class="alert success top-alert">{notice}</div>{/if}
 
         {#if !employee}
           <section class="panel empty-state">
@@ -910,29 +1116,60 @@
 
 
             <section class="panel dates-panel">
-              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{visibleDates.length}</span></div>
-              <form class="date-create-form" on:submit={createDate}>
-                <label class="field-label"><span>Phase</span><select bind:value={datePhaseInput} required><option value="" disabled>Select a phase…</option>{#each phases as phase}<option value={phase.id}>{phase.name}</option>{/each}</select></label>
-                <label class="field-label"><span>Start date</span><input bind:value={dateStartInput} type="date" required /></label>
-                <label class="field-label"><span>Finish date</span><input bind:value={dateFinishInput} type="date" min={dateStartInput || undefined} /></label>
-                <button class="button primary date-add-button" type="submit" disabled={creatingDate || !datePhaseInput || !dateStartInput}>{creatingDate ? 'Adding…' : 'Add Date'}</button>
-              </form>
+              <div class="panel-heading"><div><p class="eyebrow">Dates</p><h2>Dates for this Pour</h2></div><span class="count-badge">{pourPhaseRows.length}</span></div>
+
               {#if phases.length === 0}<div class="inline-note">Create a Phase first before adding Dates records.</div>{/if}
               {#if loadingDates}
                 <div class="panel-loading">Loading dates…</div>
-              {:else if visibleDates.length === 0}
-                <div class="empty-state compact"><p>No incomplete Dates records are available for this Pour.</p></div>
+              {:else if phases.length === 0}
+                <div class="empty-state compact"><p>No Phases have been created yet.</p></div>
               {:else}
                 <div class="table-wrap"><table><thead><tr><th>Phase</th><th>Start</th><th>Finish</th><th>Complete</th><th class="actions-column">Actions</th></tr></thead><tbody>
-                  {#each visibleDates as dateRecord}
+                  {#each pourPhaseRows as row (row.phase.id)}
                     <tr>
-                      <td><button class="record-link" on:click={() => openPhase(dateRecord.id_Phase)}>{phaseName(dateRecord.id_Phase)}</button></td>
-                      <td>{dateRecord.dateStart}</td>
-                      <td>{dateRecord.dateFinish || '—'}</td>
-                      <td><input type="checkbox" checked={dateRecord.flag_Complete} disabled={completingDateId === dateRecord.id} aria-label={`Mark ${phaseName(dateRecord.id_Phase)} date complete`} on:change={(event) => setDateComplete(dateRecord, event.currentTarget.checked)} /></td>
+                      <td><button class="record-link" on:click={() => openPhase(row.phase.id)}>{row.phase.name}</button></td>
+                      <td>
+                        <input
+                          class="inline-date-input"
+                          type="date"
+                            on:click={openDatePicker}
+                          on:keydown|preventDefault
+                          on:paste|preventDefault
+                          on:drop|preventDefault
+                          value={row.dateRecord?.dateStart || ''}
+                          disabled={row.dateRecord?.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateStart`}
+                          aria-label={`${row.phase.name} start date`}
+                          on:change={(event) => saveInlineDate(row, 'dateStart', event.currentTarget.value, event.currentTarget)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          class="inline-date-input"
+                          type="date"
+                            on:click={openDatePicker}
+                          on:keydown|preventDefault
+                          on:paste|preventDefault
+                          on:drop|preventDefault
+                          value={row.dateRecord?.dateFinish || ''}
+                          min={row.dateRecord?.dateStart || undefined}
+                          disabled={!row.dateRecord || row.dateRecord.flag_Complete || savingInlineDateKey === `${row.phase.id}:dateFinish`}
+                          title={row.dateRecord ? 'Edit finish date' : 'Enter a start date first to create this Date record'}
+                          aria-label={`${row.phase.name} finish date`}
+                          on:change={(event) => saveInlineDate(row, 'dateFinish', event.currentTarget.value, event.currentTarget)}
+                        />
+                      </td>
+                      <td>
+                        {#if row.dateRecord}
+                          <input type="checkbox" checked={row.dateRecord.flag_Complete} disabled={completingDateId === row.dateRecord.id} aria-label={`Mark ${row.phase.name} date complete`} on:change={(event) => setDateComplete(row.dateRecord, event.currentTarget.checked)} />
+                        {:else}
+                          <input type="checkbox" disabled aria-label={`No ${row.phase.name} date record to complete`} />
+                        {/if}
+                      </td>
                       <td class="row-actions date-row-actions">
-                        <button class="button secondary compact-button" type="button" on:click={() => openDateHistory(dateRecord.id_Phase)}>Show All</button>
-                        <button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === dateRecord.id || completingDateId === dateRecord.id} on:click={() => deleteDate(dateRecord)}>{deletingDateId === dateRecord.id ? '…' : '×'}</button>
+                        <button class="button secondary compact-button" type="button" on:click={() => openDateHistory(row.phase.id)}>Show All</button>
+                        {#if row.dateRecord}
+                          <button class="icon-button danger" title="Delete date" aria-label="Delete date record" disabled={deletingDateId === row.dateRecord.id || completingDateId === row.dateRecord.id} on:click={() => deleteDate(row.dateRecord)}>{deletingDateId === row.dateRecord.id ? '…' : '×'}</button>
+                        {/if}
                       </td>
                     </tr>
                   {/each}
@@ -966,7 +1203,7 @@
     </div>
 
     {#if dateHistoryPhaseId}
-      <div class="modal-backdrop" role="presentation" on:click={closeDateHistory}>
+      <div class="modal-backdrop" role="presentation"  disabled={savingHistory}>
         <section class="modal-card date-history-modal" role="dialog" aria-modal="true" aria-labelledby="date-history-title" on:click|stopPropagation>
           <div class="modal-heading">
             <div>
@@ -974,9 +1211,35 @@
               <h2 id="date-history-title">{phaseName(dateHistoryPhaseId)}</h2>
               <p>All Dates for Pour {selectedPour ? pourIdentifier(selectedPour) : ''} and this Phase.</p>
             </div>
-            <button class="modal-close" type="button" aria-label="Close date history" on:click={closeDateHistory}>×</button>
+            <div class="modal-heading-actions">
+              <button class="button primary compact-button" type="button" on:click={() => (showHistoryDateCreate = !showHistoryDateCreate)}>
+                <span class="plus">+</span> New Date
+              </button>
+</div>
           </div>
           <div class="modal-body">
+            {#if historyError}<div class="alert error">{historyError}</div>{/if}
+            {#if showHistoryDateCreate}
+              <form class="history-date-create" on:submit={createHistoryDate}>
+                <label class="field-label">
+                  <span>Start date</span>
+                  <input
+                    class="inline-date-input"
+                    type="date"
+                    on:click={openDatePicker}
+                    on:keydown|preventDefault
+                    on:paste|preventDefault
+                    on:drop|preventDefault
+                    bind:value={historyDateStartInput}
+                    required
+                    aria-label={`New ${phaseName(dateHistoryPhaseId)} start date`}
+                  />
+                </label>
+                <button class="button primary compact-button" type="submit" disabled={savingHistory || !historyDateStartInput}>
+                  {creatingHistoryDate ? 'Creating…' : 'Create'}
+                </button>
+              </form>
+            {/if}
             {#if dateHistoryRecords.length === 0}
               <div class="empty-state compact"><p>No Dates records found for this Pour and Phase.</p></div>
             {:else}
@@ -986,9 +1249,35 @@
                   <tbody>
                     {#each dateHistoryRecords as relatedDate (relatedDate.id)}
                       <tr>
-                        <td>{relatedDate.dateStart}</td>
-                        <td>{relatedDate.dateFinish || '—'}</td>
-                        <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={completingDateId === relatedDate.id} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setDateComplete(relatedDate, event.currentTarget.checked)} /></td>
+                        <td>
+                          <input
+                            class="inline-date-input"
+                            type="date"
+                            on:click={openDatePicker}
+                            on:keydown|preventDefault
+                            on:paste|preventDefault
+                            on:drop|preventDefault
+                            value={relatedDate.dateStart}
+                            disabled={savingHistory || relatedDate.flag_Complete}
+                            aria-label={`${phaseName(relatedDate.id_Phase)} history start date`}
+                            on:change={(event) => saveHistoryDate(relatedDate, 'dateStart', event.currentTarget.value, event.currentTarget)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            class="inline-date-input"
+                            type="date"
+                            on:click={openDatePicker}
+                            on:keydown|preventDefault
+                            on:paste|preventDefault
+                            on:drop|preventDefault
+                            value={relatedDate.dateFinish || ''}
+                            disabled={savingHistory || relatedDate.flag_Complete}
+                            aria-label={`${phaseName(relatedDate.id_Phase)} history finish date`}
+                            on:change={(event) => saveHistoryDate(relatedDate, 'dateFinish', event.currentTarget.value, event.currentTarget)}
+                          />
+                        </td>
+                        <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={savingHistory} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setHistoryDateComplete(relatedDate, event.currentTarget.checked)} /></td>
                       </tr>
                     {/each}
                   </tbody>
@@ -996,7 +1285,8 @@
               </div>
             {/if}
             <div class="modal-actions">
-              <button class="button secondary" type="button" on:click={closeDateHistory}>Close</button>
+              <button class="button secondary" type="button" on:click={closeDateHistory} disabled={savingHistory}>Cancel</button>
+              <button class="button primary" type="button" on:click={saveDateHistory} disabled={savingHistory}>{savingHistory ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </section>
