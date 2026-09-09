@@ -29,6 +29,20 @@
   let deletingPourId = null
 
   let phases = []
+  let rolesCompanies = []
+  let selectedRoleCompany = null
+  let roleCompanyNameInput = ''
+  let creatingRoleCompany = false
+  let savingRoleCompany = false
+  let loadingRoleCompany = false
+
+  let rolesContacts = []
+  let selectedRoleContact = null
+  let roleContactNameInput = ''
+  let creatingRoleContact = false
+  let savingRoleContact = false
+  let loadingRoleContact = false
+
   let companies = []
   let selectedCompany = null
   let contacts = []
@@ -36,6 +50,7 @@
   let companyRoleIds = []
   let contactFirstInput = ''
   let contactLastInput = ''
+  let contactRoleIds = []
   let showContactCreateModal = false
   let creatingCompany = false
   let creatingContact = false
@@ -201,14 +216,26 @@
 
   const companyRoleNames = (roleIds) =>
     (roleIds ?? [])
-      .map((id) => phases.find((phase) => phase.id === id)?.name)
+      .map((id) => rolesCompanies.find((role) => role.id === id)?.name)
       .filter(Boolean)
       .join(', ')
 
-  function toggleCompanyRole(phaseId) {
-    companyRoleIds = companyRoleIds.includes(phaseId)
-      ? companyRoleIds.filter((id) => id !== phaseId)
-      : [...companyRoleIds, phaseId]
+  const contactRoleNames = (roleIds) =>
+    (roleIds ?? [])
+      .map((id) => rolesContacts.find((role) => role.id === id)?.name)
+      .filter(Boolean)
+      .join(', ')
+
+  function toggleCompanyRole(roleId) {
+    companyRoleIds = companyRoleIds.includes(roleId)
+      ? companyRoleIds.filter((id) => id !== roleId)
+      : [...companyRoleIds, roleId]
+  }
+
+  function toggleContactRole(roleId) {
+    contactRoleIds = contactRoleIds.includes(roleId)
+      ? contactRoleIds.filter((id) => id !== roleId)
+      : [...contactRoleIds, roleId]
   }
 
   async function loadCompanies() {
@@ -231,7 +258,7 @@
 
     const [{ data: company, error: companyError }, { data: contactRows, error: contactsError }] = await Promise.all([
       supabase.from('Companies').select('id, name, id_Roles').eq('id', companyId).single(),
-      supabase.from('Contacts').select('id, nameFirst, nameLast, id_Company').eq('id_Company', companyId).order('nameLast', { ascending: true }).order('nameFirst', { ascending: true })
+      supabase.from('Contacts').select('id, nameFirst, nameLast, id_Company, id_Roles').eq('id_Company', companyId).order('nameLast', { ascending: true }).order('nameFirst', { ascending: true })
     ])
 
     if (companyError) appError = companyError.message
@@ -296,6 +323,7 @@
   function openContactCreateModal() {
     contactFirstInput = ''
     contactLastInput = ''
+    contactRoleIds = []
     appError = ''
     showContactCreateModal = true
   }
@@ -304,6 +332,7 @@
     if (creatingContact) return
     contactFirstInput = ''
     contactLastInput = ''
+    contactRoleIds = []
     showContactCreateModal = false
   }
 
@@ -318,9 +347,10 @@
       .insert({
         nameFirst: contactFirstInput.trim(),
         nameLast: contactLastInput.trim(),
-        id_Company: selectedCompany.id
+        id_Company: selectedCompany.id,
+        id_Roles: contactRoleIds
       })
-      .select('id, nameFirst, nameLast, id_Company')
+      .select('id, nameFirst, nameLast, id_Company, id_Roles')
       .single()
 
     if (error) {
@@ -331,6 +361,7 @@
       )
       contactFirstInput = ''
       contactLastInput = ''
+      contactRoleIds = []
       showContactCreateModal = false
     }
 
@@ -386,7 +417,17 @@
       return
     }
 
-    if (['jobs', 'pours', 'phases', 'companies'].includes(location.view)) {
+    if (location.view === 'role-company' && location.id) {
+      await openRoleCompany(location.id, 'none')
+      return
+    }
+
+    if (location.view === 'role-contact' && location.id) {
+      await openRoleContact(location.id, 'none')
+      return
+    }
+
+    if (['jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
       await navigate(location.view, 'none')
       return
     }
@@ -459,7 +500,7 @@
     appError = ''
     await loadEmployee()
     if (employee) {
-      await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies()])
+      await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
       await restoreAppLocation()
     }
     loading = false
@@ -493,6 +534,155 @@
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) authError = error.message
     signingIn = false
+  }
+
+
+  async function loadRolesCompanies() {
+    const { data, error } = await supabase
+      .from('RolesCompanies')
+      .select('id, name')
+      .order('name', { ascending: true })
+
+    if (error) appError = error.message
+    else rolesCompanies = data ?? []
+  }
+
+  async function loadRolesContacts() {
+    const { data, error } = await supabase
+      .from('RolesContacts')
+      .select('id, name')
+      .order('name', { ascending: true })
+
+    if (error) appError = error.message
+    else rolesContacts = data ?? []
+  }
+
+  async function openRoleCompany(roleId, historyMode = 'push') {
+    writeAppLocation('role-company', roleId, historyMode)
+    view = 'role-company'
+    loadingRoleCompany = true
+    appError = ''
+    selectedRoleCompany = null
+
+    const { data, error } = await supabase
+      .from('RolesCompanies')
+      .select('id, name')
+      .eq('id', roleId)
+      .single()
+
+    if (error) appError = error.message
+    selectedRoleCompany = data ?? null
+    roleCompanyNameInput = data?.name ?? ''
+    loadingRoleCompany = false
+  }
+
+  async function openRoleContact(roleId, historyMode = 'push') {
+    writeAppLocation('role-contact', roleId, historyMode)
+    view = 'role-contact'
+    loadingRoleContact = true
+    appError = ''
+    selectedRoleContact = null
+
+    const { data, error } = await supabase
+      .from('RolesContacts')
+      .select('id, name')
+      .eq('id', roleId)
+      .single()
+
+    if (error) appError = error.message
+    selectedRoleContact = data ?? null
+    roleContactNameInput = data?.name ?? ''
+    loadingRoleContact = false
+  }
+
+  async function createRoleCompany() {
+    creatingRoleCompany = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('RolesCompanies')
+      .insert({ name: 'New Role' })
+      .select('id, name')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      rolesCompanies = [...rolesCompanies, data].sort((a, b) => a.name.localeCompare(b.name))
+      await openRoleCompany(data.id)
+    }
+
+    creatingRoleCompany = false
+  }
+
+  async function createRoleContact() {
+    creatingRoleContact = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('RolesContacts')
+      .insert({ name: 'New Role' })
+      .select('id, name')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      rolesContacts = [...rolesContacts, data].sort((a, b) => a.name.localeCompare(b.name))
+      await openRoleContact(data.id)
+    }
+
+    creatingRoleContact = false
+  }
+
+  async function saveRoleCompany() {
+    if (!selectedRoleCompany || !roleCompanyNameInput.trim()) return
+
+    savingRoleCompany = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('RolesCompanies')
+      .update({ name: roleCompanyNameInput.trim() })
+      .eq('id', selectedRoleCompany.id)
+      .select('id, name')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      selectedRoleCompany = data
+      rolesCompanies = rolesCompanies
+        .map((role) => role.id === data.id ? data : role)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    }
+
+    savingRoleCompany = false
+  }
+
+  async function saveRoleContact() {
+    if (!selectedRoleContact || !roleContactNameInput.trim()) return
+
+    savingRoleContact = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('RolesContacts')
+      .update({ name: roleContactNameInput.trim() })
+      .eq('id', selectedRoleContact.id)
+      .select('id, name')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      selectedRoleContact = data
+      rolesContacts = rolesContacts
+        .map((role) => role.id === data.id ? data : role)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    }
+
+    savingRoleContact = false
   }
 
   async function signOut() {
@@ -1089,7 +1279,9 @@
     if (target === 'jobs') await loadJobs()
     if (target === 'pours') await Promise.all([loadJobs(), loadAllPours()])
     if (target === 'phases') await loadPhases()
-    if (target === 'companies') await Promise.all([loadCompanies(), loadPhases()])
+    if (target === 'companies') await Promise.all([loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
+    if (target === 'roles-companies') await loadRolesCompanies()
+    if (target === 'roles-contacts') await loadRolesContacts()
   }
 
   async function createJob() {
@@ -1409,6 +1601,12 @@
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>
           <span class="nav-icon">▤</span><span>Companies</span>
         </button>
+          <button class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>
+            <span class="nav-icon">▤</span><span>Company Roles</span>
+          </button>
+          <button class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>
+            <span class="nav-icon">▤</span><span>Contact Roles</span>
+          </button>
       </nav>
 
       <div class="sidebar-user">
@@ -1428,7 +1626,10 @@
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
         <button class:active={view === 'phases' || view === 'phase'} on:click={() => navigate('phases')}>Phases</button>
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>Companies</button>
-      </nav>
+      
+            <button class:active={view === 'roles-companies' || view === 'role-company'} on:click={() => navigate('roles-companies')}>Company Roles</button>
+            <button class:active={view === 'roles-contacts' || view === 'role-contact'} on:click={() => navigate('roles-contacts')}>Contact Roles</button>
+          </nav>
 
       <main class="content">
         {#if appError}<div class="alert error top-alert">{appError}</div>{/if}
@@ -1604,14 +1805,14 @@
                 <fieldset class="role-picker">
                   <legend>Roles</legend>
                   <div class="role-checkboxes">
-                    {#each phases as phase (phase.id)}
+                    {#each rolesCompanies as role (role.id)}
                       <label>
                         <input
                           type="checkbox"
-                          checked={companyRoleIds.includes(phase.id)}
-                          on:change={() => toggleCompanyRole(phase.id)}
+                          checked={companyRoleIds.includes(role.id)}
+                          on:change={() => toggleCompanyRole(role.id)}
                         />
-                        <span>{phase.name}</span>
+                        <span>{role.name}</span>
                       </label>
                     {/each}
                   </div>
@@ -1648,6 +1849,7 @@
                       <tr>
                         <th>First Name</th>
                         <th>Last Name</th>
+                        <th>Roles</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1655,6 +1857,7 @@
                         <tr>
                           <td>{contact.nameFirst}</td>
                           <td>{contact.nameLast}</td>
+                          <td>{contactRoleNames(contact.id_Roles) || '—'}</td>
                         </tr>
                       {/each}
                     </tbody>
@@ -1664,7 +1867,150 @@
             </section>
           {/if}
 
-        {:else if view === 'phases'}
+        
+        {:else if view === 'roles-companies'}
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">Roles</p>
+              <h1>Company Roles</h1>
+            </div>
+            <button class="button primary" type="button" disabled={creatingRoleCompany} on:click={createRoleCompany}>
+              <span class="plus">+</span>{creatingRoleCompany ? 'Creating…' : 'New Role'}
+            </button>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">RolesCompanies</p>
+                <h2>Company Roles</h2>
+              </div>
+              <span class="count-badge">{rolesCompanies.length}</span>
+            </div>
+
+            {#if rolesCompanies.length === 0}
+              <div class="empty-state compact"><p>No Company Roles have been created yet.</p></div>
+            {:else}
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th></tr></thead>
+                  <tbody>
+                    {#each rolesCompanies as role (role.id)}
+                      <tr class="clickable-row" on:click={() => openRoleCompany(role.id)}>
+                        <td><button class="record-link" on:click|stopPropagation={() => openRoleCompany(role.id)}>{role.name}</button></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </section>
+
+        {:else if view === 'role-company'}
+          <button class="back-button" on:click={() => navigate('roles-companies')}>← Back to Company Roles</button>
+          {#if loadingRoleCompany}
+            <section class="panel panel-loading">Loading Company Role…</section>
+          {:else if selectedRoleCompany}
+            <section class="detail-heading">
+              <div>
+                <p class="eyebrow">Company Role</p>
+                <h1>{selectedRoleCompany.name}</h1>
+              </div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="address-edit-grid">
+                <label class="field-label">
+                  <span>Name</span>
+                  <input type="text" bind:value={roleCompanyNameInput} />
+                </label>
+              </div>
+
+              <div class="modal-actions detail-actions">
+                <button
+                  class="button primary"
+                  type="button"
+                  disabled={savingRoleCompany || !roleCompanyNameInput.trim()}
+                  on:click={saveRoleCompany}
+                >
+                  {savingRoleCompany ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </section>
+          {/if}
+
+        {:else if view === 'roles-contacts'}
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">Roles</p>
+              <h1>Contact Roles</h1>
+            </div>
+            <button class="button primary" type="button" disabled={creatingRoleContact} on:click={createRoleContact}>
+              <span class="plus">+</span>{creatingRoleContact ? 'Creating…' : 'New Role'}
+            </button>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">RolesContacts</p>
+                <h2>Contact Roles</h2>
+              </div>
+              <span class="count-badge">{rolesContacts.length}</span>
+            </div>
+
+            {#if rolesContacts.length === 0}
+              <div class="empty-state compact"><p>No Contact Roles have been created yet.</p></div>
+            {:else}
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th></tr></thead>
+                  <tbody>
+                    {#each rolesContacts as role (role.id)}
+                      <tr class="clickable-row" on:click={() => openRoleContact(role.id)}>
+                        <td><button class="record-link" on:click|stopPropagation={() => openRoleContact(role.id)}>{role.name}</button></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </section>
+
+        {:else if view === 'role-contact'}
+          <button class="back-button" on:click={() => navigate('roles-contacts')}>← Back to Contact Roles</button>
+          {#if loadingRoleContact}
+            <section class="panel panel-loading">Loading Contact Role…</section>
+          {:else if selectedRoleContact}
+            <section class="detail-heading">
+              <div>
+                <p class="eyebrow">Contact Role</p>
+                <h1>{selectedRoleContact.name}</h1>
+              </div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="address-edit-grid">
+                <label class="field-label">
+                  <span>Name</span>
+                  <input type="text" bind:value={roleContactNameInput} />
+                </label>
+              </div>
+
+              <div class="modal-actions detail-actions">
+                <button
+                  class="button primary"
+                  type="button"
+                  disabled={savingRoleContact || !roleContactNameInput.trim()}
+                  on:click={saveRoleContact}
+                >
+                  {savingRoleContact ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </section>
+          {/if}
+
+{:else if view === 'phases'}
           <section class="page-heading">
             <div><p class="eyebrow">Phases</p><h1>Phases</h1><p>Manage the reusable phases that can be assigned to Pour Dates records.</p></div>
           </section>
@@ -2095,6 +2441,26 @@
                     autocomplete="family-name"
                     />
                 </label>
+
+                <div class="field-label contact-role-field">
+                  <span>Roles</span>
+                  {#if rolesContacts.length === 0}
+                    <p class="inline-note">No Contact Roles have been created yet.</p>
+                  {:else}
+                    <div class="role-options">
+                      {#each rolesContacts as role (role.id)}
+                        <label class="role-option">
+                          <input
+                            type="checkbox"
+                            checked={contactRoleIds.includes(role.id)}
+                            on:change={() => toggleContactRole(role.id)}
+                          />
+                          <span>{role.name}</span>
+                        </label>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
               </div>
             </div>
 

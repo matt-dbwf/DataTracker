@@ -526,3 +526,31 @@ tbody tr:hover { background: #fcfdfe; }
     grid-template-columns: 1fr;
   }
 }
+
+.detail-actions {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.contact-role-field {
+  grid-column: 1 / -1;
+}
+
+.role-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.role-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+}
+
+.role-option input {
+  width: auto;
+}
