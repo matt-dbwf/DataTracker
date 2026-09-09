@@ -1,72 +1,74 @@
 # DataTracker
 
-Base Svelte 5 + Vite + Supabase project.
+Svelte 5 + Vite frontend for the DataTracker Supabase project.
 
-## Setup
+## Current UI
 
-1. Install dependencies:
+- Supabase email/password authentication
+- Employee profile lookup using `Employees.id_User = auth.uid()`
+- Jobs list
+- Create and delete Jobs
+- Job detail page
+- Create and delete Pours
+- `stageNum` is assigned automatically by PostgreSQL
+- Creator IDs are assigned automatically by PostgreSQL
+- Creator names can be displayed from the Employees relationship
 
-   ```bash
-   npm install
-   ```
+## Supabase environment
 
-2. Copy the environment template:
+Copy `.env.example` to `.env` and set:
 
-   **Windows PowerShell**
+```env
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+```
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+Never put a Supabase `service_role` or secret key in this frontend.
 
-   **macOS / Linux**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-3. In Supabase, open the DataTracker project and get the Project URL and publishable key from the Connect / API settings.
-
-4. Put those values in `.env`:
-
-   ```env
-   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
-   ```
-
-5. Start the development server:
-
-   ```bash
-   npm run dev
-   ```
-
-## Commands
+## Install
 
 ```bash
+npm install
 npm run dev
-npm run build
-npm run preview
 ```
 
-## Current structure
+## Expected database schema
 
-```text
-DataTracker/
-├─ src/
-│  ├─ lib/
-│  │  └─ supabase.js
-│  ├─ App.svelte
-│  ├─ app.css
-│  └─ main.js
-├─ .env.example
-├─ .gitignore
-├─ index.html
-├─ package.json
-├─ README.md
-└─ vite.config.js
-```
+### Employees
+- `id` uuid
+- `nameFirst` text
+- `nameLast` text
+- `email` text
+- `id_User` uuid -> `auth.users.id`
+- `created_at` timestamptz
 
-No application-specific database schema, tables, authentication rules, or business logic are included yet.
+### Jobs
+- `id` uuid
+- `seq` sequential number
+- `id_Employee` uuid -> `Employees.id`
+- `created_at` timestamptz
 
-## Security
+Expected foreign-key name for the employee relationship: `jobs_employee_fk`.
 
-Only use a Supabase publishable/browser-safe key in the Vite frontend. Never put a Supabase `service_role` key in this repository's browser code or Vite environment variables.
+### Pours
+- `id` uuid
+- `id_Job` uuid -> `Jobs.id`
+- `stageNum` integer, assigned automatically per Job
+- `id_Employee` uuid -> `Employees.id`
+- `created_at` timestamptz
+
+Expected foreign-key name for the employee relationship: `pours_employee_fk`.
+
+## Authentication workflow
+
+DataTracker follows the same principle as PSM:
+
+1. User signs in with Supabase Auth.
+2. `auth.uid()` identifies the Supabase user.
+3. `Employees.id_User` links that user to an Employee row.
+4. Database triggers translate that user into `Employees.id` when creating Jobs and Pours.
+5. The frontend does not send `id_Employee` when creating records.
+
+## Important
+
+The frontend assumes your Supabase RLS policies allow authenticated employees to perform the intended Jobs and Pours operations. If RLS is enabled without policies for those tables, reads/inserts/deletes will be rejected by Supabase.
