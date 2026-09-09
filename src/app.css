@@ -259,3 +259,50 @@ tbody tr:hover { background: #fcfdfe; }
     flex-direction: column;
   }
 }
+
+
+.pour-list-date-cell {
+  min-width: 150px;
+}
+
+.pour-list-date-cell .inline-date-input {
+  width: 100%;
+  min-width: 135px;
+}
+
+.pour-list-date-cell .inline-date-input + .inline-date-input {
+  margin-top: 0.35rem;
+}
+
+
+.pour-list-show-all {
+  width: 100%;
+  margin-top: 0.45rem;
+}
+
+
+.pour-list-complete {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+}
+
+.pour-list-complete input {
+  margin: 0;
+}
+
+
+.pour-open-cell {
+  cursor: pointer;
+}
+
+.pour-open-cell:hover {
+  background: rgba(15, 23, 42, 0.035);
+}
+
+.pour-open-cell:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}

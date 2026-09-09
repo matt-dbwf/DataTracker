@@ -15,6 +15,7 @@
   let view = 'jobs'
   let jobs = []
   let allPours = []
+  let allPourDates = []
   let selectedJob = null
   let selectedPour = null
   let pours = []
@@ -49,6 +50,8 @@
   let completingDateId = null
   let savingInlineDateKey = null
   let savingHistoryDateKey = null
+  let savingPourListDateKey = null
+  let completingPourListDateId = null
   let showHistoryDateCreate = false
   let historyDateStartInput = ''
   let creatingHistoryDate = false
@@ -77,6 +80,29 @@
       hour: 'numeric',
       minute: '2-digit'
     }).format(new Date(value))
+  }
+
+  const formatDateOnly = (value) => {
+    if (!value) return ''
+    return new Intl.DateTimeFormat('en-AU', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC'
+    }).format(new Date(`${value}T00:00:00Z`))
+  }
+
+  const pourPhaseDate = (pourId, phaseId) => {
+    const related = allPourDates
+      .filter((dateRecord) => dateRecord.id_Pour === pourId && dateRecord.id_Phase === phaseId)
+      .sort((a, b) =>
+        a.dateStart.localeCompare(b.dateStart) ||
+        (a.dateFinish ?? '').localeCompare(b.dateFinish ?? '') ||
+        a.id.localeCompare(b.id)
+      )
+
+    const firstIncomplete = related.find((dateRecord) => !dateRecord.flag_Complete)
+    return firstIncomplete ?? related[related.length - 1] ?? null
   }
 
   const getJob = (jobId) => jobs.find((job) => job.id === jobId)
@@ -136,9 +162,13 @@
         )
     : []
 
-  function openDateHistory(phaseId) {
+  function openDateHistory(phaseId, pour = selectedPour) {
+    if (pour) selectedPour = pour
     dateHistoryPhaseId = phaseId
-    historyOriginal = dates.filter((d) => d.id_Pour === selectedPour?.id && d.id_Phase === phaseId).map((d) => ({ ...d }))
+    const sourceDates = pour
+      ? allPourDates.filter((d) => d.id_Pour === pour.id && d.id_Phase === phaseId)
+      : []
+    historyOriginal = sourceDates.map((d) => ({ ...d }))
     historyDraft = historyOriginal.map((d) => ({ ...d }))
     showHistoryDateCreate = false
     historyDateStartInput = ''
@@ -257,13 +287,23 @@
     loadingPours = true
     appError = ''
 
-    const { data, error } = await supabase
-      .from('Pours')
-      .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
-      .order('created_at', { ascending: false })
+    const [{ data, error }, { data: dateData, error: dateError }] = await Promise.all([
+      supabase
+        .from('Pours')
+        .select('id, id_Job, stageNum, created_at, id_Employee, creator:Employees!pours_employee_fk(id, nameFirst, nameLast)')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('Dates')
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .order('dateStart', { ascending: true })
+    ])
 
     if (error) appError = error.message
     else allPours = data ?? []
+
+    if (dateError) appError = dateError.message
+    else allPourDates = dateData ?? []
+
     loadingPours = false
   }
 
@@ -365,6 +405,118 @@
     }
 
     updatingPhase = false
+  }
+
+  async function setPourListDateComplete(dateRecord, flagComplete) {
+    if (!dateRecord) return
+
+    completingPourListDateId = dateRecord.id
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .update({ flag_Complete: flagComplete })
+      .eq('id', dateRecord.id)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      allPourDates = allPourDates.map((item) => item.id === data.id ? data : item)
+      if (selectedPour?.id === data.id_Pour) {
+        dates = sortDatesByPhaseAndStart(
+          dates.map((item) => item.id === data.id ? data : item)
+        )
+      }
+    }
+
+    completingPourListDateId = null
+  }
+
+  async function savePourListDate(pour, phase, field, value, inputElement) {
+    const existing = pourPhaseDate(pour.id, phase.id)
+    const key = `${pour.id}:${phase.id}:${field}`
+    savingPourListDateKey = key
+    appError = ''
+
+    if (existing?.flag_Complete) {
+      if (inputElement) inputElement.value = existing[field] || ''
+      savingPourListDateKey = null
+      return
+    }
+
+    if (field === 'dateStart' && !value) {
+      appError = 'Start date cannot be blank.'
+      if (inputElement) inputElement.value = existing?.dateStart || ''
+      savingPourListDateKey = null
+      return
+    }
+
+    if (!existing) {
+      if (field !== 'dateStart' || !value) {
+        savingPourListDateKey = null
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('Dates')
+        .insert({
+          dateStart: value,
+          dateFinish: value,
+          id_Pour: pour.id,
+          id_Phase: phase.id
+        })
+        .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+        .single()
+
+      if (error) {
+        appError = error.message
+        if (inputElement) inputElement.value = ''
+      } else {
+        allPourDates = [...allPourDates, data]
+        if (selectedPour?.id === pour.id) {
+          dates = sortDatesByPhaseAndStart([...dates, data])
+        }
+      }
+
+      savingPourListDateKey = null
+      return
+    }
+
+    let updates = { [field]: value || null }
+
+    if (field === 'dateStart') {
+      const existingGap = daysBetweenDates(existing.dateStart, existing.dateFinish)
+      if (existingGap !== null) {
+        updates = {
+          dateStart: value,
+          dateFinish: addDaysToDate(value, existingGap)
+        }
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('Dates')
+      .update(updates)
+      .eq('id', existing.id)
+      .eq('flag_Complete', false)
+      .select('id, dateStart, dateFinish, id_Pour, id_Phase, flag_Complete')
+      .maybeSingle()
+
+    if (error || !data) {
+      appError = error?.message || 'This Date is complete or is no longer available for editing.'
+      if (inputElement) inputElement.value = existing[field] || ''
+    } else {
+      allPourDates = allPourDates.map((dateRecord) => dateRecord.id === data.id ? data : dateRecord)
+      if (selectedPour?.id === pour.id) {
+        dates = sortDatesByPhaseAndStart(
+          dates.map((dateRecord) => dateRecord.id === data.id ? data : dateRecord)
+        )
+      }
+    }
+
+    savingPourListDateKey = null
   }
 
   async function loadDatesForPour(pourId) {
@@ -570,6 +722,10 @@
     if (error) {
       historyError = error.message
     } else {
+      allPourDates = [
+        ...allPourDates.filter((d) => !(d.id_Pour === selectedPour.id && d.id_Phase === dateHistoryPhaseId)),
+        ...data
+      ]
       dates = sortDatesByPhaseAndStart([
         ...dates.filter((d) => !(d.id_Pour === selectedPour.id && d.id_Phase === dateHistoryPhaseId)),
         ...data
@@ -1011,14 +1167,73 @@
               <div class="empty-state compact"><h3>No Pours yet</h3><p>Create a new Pour here, or add another stage to an existing Job.</p><button class="button primary" on:click={openPourCreate}>New Pour</button></div>
             {:else}
               <div class="table-wrap">
-                <table><thead><tr><th>Pour</th><th class="actions-column">Actions</th></tr></thead><tbody>
-                  {#each sortedAllPours as pour}
+                <table>
+                  <thead>
                     <tr>
-                      <td><button class="record-link" on:click={() => openPour(pour.id)}>{pourIdentifier(pour)}</button></td>
-                      <td class="row-actions"><button class="button secondary small-button" on:click={() => openPour(pour.id)}>Open</button><button class="icon-button danger" title="Delete pour" aria-label={`Delete Pour ${pourIdentifier(pour)}`} disabled={deletingPourId === pour.id} on:click={() => deletePour(pour)}>{deletingPourId === pour.id ? '…' : '×'}</button></td>
+                      <th>Pour</th>
+                      {#each phases as phase (phase.id)}
+                        <th>{phase.name}</th>
+                      {/each}
+                      <th class="actions-column">Actions</th>
                     </tr>
-                  {/each}
-                </tbody></table>
+                  </thead>
+                  <tbody>
+                    {#each sortedAllPours as pour}
+                      <tr>
+                        <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openPour(pour.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openPour(pour.id)}><span class="record-link">{pourIdentifier(pour)}</span></td>
+                        {#each phases as phase (phase.id)}
+                          {@const phaseDate = pourPhaseDate(pour.id, phase.id)}
+                          <td class="pour-list-date-cell">
+                            <input
+                              class="inline-date-input"
+                              type="date"
+                              on:click={openDatePicker}
+                              on:keydown|preventDefault
+                              on:paste|preventDefault
+                              on:drop|preventDefault
+                              value={phaseDate?.dateStart || ''}
+                              disabled={phaseDate?.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateStart`}
+                              aria-label={`${pourIdentifier(pour)} ${phase.name} start date`}
+                              on:change={(event) => savePourListDate(pour, phase, 'dateStart', event.currentTarget.value, event.currentTarget)}
+                            />
+                            <input
+                              class="inline-date-input"
+                              type="date"
+                              on:click={openDatePicker}
+                              on:keydown|preventDefault
+                              on:paste|preventDefault
+                              on:drop|preventDefault
+                              value={phaseDate?.dateFinish || ''}
+                              min={phaseDate?.dateStart || undefined}
+                              disabled={!phaseDate || phaseDate.flag_Complete || savingPourListDateKey === `${pour.id}:${phase.id}:dateFinish`}
+                              title={phaseDate ? 'Edit finish date' : 'Enter a start date first to create this Date record'}
+                              aria-label={`${pourIdentifier(pour)} ${phase.name} finish date`}
+                              on:change={(event) => savePourListDate(pour, phase, 'dateFinish', event.currentTarget.value, event.currentTarget)}
+                            />
+                            <label class="pour-list-complete">
+                              <input
+                                type="checkbox"
+                                checked={phaseDate?.flag_Complete || false}
+                                disabled={!phaseDate || completingPourListDateId === phaseDate.id}
+                                aria-label={`Mark ${pourIdentifier(pour)} ${phase.name} date complete`}
+                                on:change={(event) => setPourListDateComplete(phaseDate, event.currentTarget.checked)}
+                              />
+                              <span>Complete</span>
+                            </label>
+                            <button
+                              class="button secondary compact-button pour-list-show-all"
+                              type="button"
+                              on:click={() => openDateHistory(phase.id, pour)}
+                            >
+                              Show All
+                            </button>
+                          </td>
+                        {/each}
+                        <td class="row-actions"><button class="icon-button danger" title="Delete pour" aria-label={`Delete Pour ${pourIdentifier(pour)}`} disabled={deletingPourId === pour.id} on:click={() => deletePour(pour)}>{deletingPourId === pour.id ? '…' : '×'}</button></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
               </div>
             {/if}
           </section>
