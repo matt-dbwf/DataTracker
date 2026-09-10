@@ -15,6 +15,11 @@
   let employeeLastInput = ''
   let employeeEmailInput = ''
   let savingEmployee = false
+  let employeeEditMode = false
+  let companyEditMode = false
+  let phaseEditMode = false
+  let roleCompanyEditMode = false
+  let roleContactEditMode = false
 
   let view = 'home'
   let jobs = []
@@ -411,7 +416,10 @@
       appError = error.message
     } else {
       selectedCompany = data
+      companyNameInput = data.name ?? ''
+      companyRoleIds = [...(data.id_Roles ?? [])]
       companies = companies.map((company) => company.id === data.id ? data : company)
+      companyEditMode = false
     }
 
     savingCompany = false
@@ -627,6 +635,37 @@
     employeeEmailInput = data.email ?? ''
   }
 
+  function cancelEmployeeEdit() {
+    employeeFirstInput = employee?.nameFirst ?? ''
+    employeeLastInput = employee?.nameLast ?? ''
+    employeeEmailInput = employee?.email ?? ''
+    employeeEditMode = false
+  }
+
+  function cancelCompanyEdit() {
+    companyNameInput = selectedCompany?.name ?? ''
+    companyRoleIds = [...(selectedCompany?.id_Roles ?? [])]
+    companyEditMode = false
+  }
+
+  function cancelPhaseEdit() {
+    phaseDetailNameInput = selectedPhase?.name ?? ''
+    phaseTypeRoleInput = selectedPhase?.typeRole ?? ''
+    phaseRoleCompanyId = selectedPhase?.id_RoleCompany ?? ''
+    phaseRoleContactId = selectedPhase?.id_RoleContact ?? ''
+    phaseEditMode = false
+  }
+
+  function cancelRoleCompanyEdit() {
+    roleCompanyNameInput = selectedRoleCompany?.name ?? ''
+    roleCompanyEditMode = false
+  }
+
+  function cancelRoleContactEdit() {
+    roleContactNameInput = selectedRoleContact?.name ?? ''
+    roleContactEditMode = false
+  }
+
   async function saveEmployeeProfile(event) {
     event.preventDefault()
     if (!employee || !employeeFirstInput.trim() || !employeeLastInput.trim()) return
@@ -653,6 +692,7 @@
       employeeFirstInput = data.nameFirst ?? ''
       employeeLastInput = data.nameLast ?? ''
       employeeEmailInput = data.email ?? ''
+      employeeEditMode = false
     }
 
     savingEmployee = false
@@ -783,9 +823,11 @@
       appError = error.message
     } else {
       selectedRoleCompany = data
+      roleCompanyNameInput = data.name ?? ''
       rolesCompanies = rolesCompanies
         .map((role) => role.id === data.id ? data : role)
         .sort((a, b) => a.name.localeCompare(b.name))
+      roleCompanyEditMode = false
     }
 
     savingRoleCompany = false
@@ -808,9 +850,11 @@
       appError = error.message
     } else {
       selectedRoleContact = data
+      roleContactNameInput = data.name ?? ''
       rolesContacts = rolesContacts
         .map((role) => role.id === data.id ? data : role)
         .sort((a, b) => a.name.localeCompare(b.name))
+      roleContactEditMode = false
     }
 
     savingRoleContact = false
@@ -1036,6 +1080,7 @@
       appError = error.message
     } else {
       selectedPhase = data
+      phaseEditMode = false
       phaseDetailNameInput = data.name
       phases = phases
         .map((phase) => phase.id === data.id ? data : phase)
@@ -1676,6 +1721,11 @@
     pours = []
     appError = ''
     notice = ''
+    employeeEditMode = false
+    companyEditMode = false
+    phaseEditMode = false
+    roleCompanyEditMode = false
+    roleContactEditMode = false
     if (target === 'jobs') await loadJobs()
     if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies(), loadAllContacts()])
     if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
@@ -2095,31 +2145,24 @@
                 <p class="eyebrow">My profile</p>
                 <h2>Employee details</h2>
               </div>
+              {#if !employeeEditMode}
+                <button class="button secondary" type="button" on:click={() => employeeEditMode = true}>Edit</button>
+              {/if}
             </div>
 
             <form class="phase-detail-form" on:submit={saveEmployeeProfile}>
               <div class="address-edit-grid">
-                <label class="field-label">
-                  <span>First Name</span>
-                  <input type="text" bind:value={employeeFirstInput} required />
-                </label>
-
-                <label class="field-label">
-                  <span>Last Name</span>
-                  <input type="text" bind:value={employeeLastInput} required />
-                </label>
-
-                <label class="field-label">
-                  <span>Email</span>
-                  <input type="email" bind:value={employeeEmailInput} />
-                </label>
+                <label class="field-label"><span>First Name</span><input type="text" bind:value={employeeFirstInput} disabled={!employeeEditMode} required /></label>
+                <label class="field-label"><span>Last Name</span><input type="text" bind:value={employeeLastInput} disabled={!employeeEditMode} required /></label>
+                <label class="field-label"><span>Email</span><input type="email" bind:value={employeeEmailInput} disabled={!employeeEditMode} /></label>
               </div>
 
-              <div class="form-actions">
-                <button class="button primary" type="submit" disabled={savingEmployee}>
-                  {savingEmployee ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+              {#if employeeEditMode}
+                <div class="form-actions">
+                  <button class="button secondary" type="button" on:click={cancelEmployeeEdit}>Cancel</button>
+                  <button class="button primary" type="submit" disabled={savingEmployee}>{savingEmployee ? 'Saving…' : 'Save'}</button>
+                </div>
+              {/if}
             </form>
           </section>
         {:else if view === 'jobs'}
@@ -2345,34 +2388,40 @@
             </section>
 
             <section class="panel detail-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">Company</p><h2>Company details</h2></div>
+                {#if !companyEditMode}
+                  <button class="button secondary" type="button" on:click={() => companyEditMode = true}>Edit</button>
+                {/if}
+              </div>
+
               <div class="company-detail-grid">
                 <label class="field-label">
                   <span>Name</span>
-                  <input type="text" bind:value={companyNameInput} />
+                  <input type="text" bind:value={companyNameInput} disabled={!companyEditMode} />
                 </label>
 
-                <fieldset class="role-picker">
+                <fieldset class="role-picker" disabled={!companyEditMode}>
                   <legend>Roles</legend>
                   <div class="role-checkboxes">
                     {#each rolesCompanies as role (role.id)}
                       <label>
-                        <input
-                          type="checkbox"
-                          checked={companyRoleIds.includes(role.id)}
-                          on:change={() => toggleCompanyRole(role.id)}
-                        />
+                        <input type="checkbox" checked={companyRoleIds.includes(role.id)} on:change={() => toggleCompanyRole(role.id)} />
                         <span>{role.name}</span>
                       </label>
                     {/each}
                   </div>
                 </fieldset>
+              </div>
 
-                <div>
+              {#if companyEditMode}
+                <div class="form-actions">
+                  <button class="button secondary" type="button" on:click={cancelCompanyEdit}>Cancel</button>
                   <button class="button primary" type="button" disabled={savingCompany || !companyNameInput.trim()} on:click={saveCompany}>
-                    {savingCompany ? 'Saving…' : 'Save Company'}
+                    {savingCompany ? 'Saving…' : 'Save'}
                   </button>
                 </div>
-              </div>
+              {/if}
             </section>
 
             <section class="panel dates-panel">
@@ -2468,23 +2517,26 @@
             </section>
 
             <section class="panel detail-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">Role</p><h2>Role details</h2></div>
+                {#if !roleCompanyEditMode}
+                  <button class="button secondary" type="button" on:click={() => roleCompanyEditMode = true}>Edit</button>
+                {/if}
+              </div>
               <div class="address-edit-grid">
                 <label class="field-label">
                   <span>Name</span>
-                  <input type="text" bind:value={roleCompanyNameInput} />
+                  <input type="text" bind:value={roleCompanyNameInput} disabled={!roleCompanyEditMode} />
                 </label>
               </div>
-
-              <div class="modal-actions detail-actions">
-                <button
-                  class="button primary"
-                  type="button"
-                  disabled={savingRoleCompany || !roleCompanyNameInput.trim()}
-                  on:click={saveRoleCompany}
-                >
-                  {savingRoleCompany ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+              {#if roleCompanyEditMode}
+                <div class="form-actions">
+                  <button class="button secondary" type="button" on:click={cancelRoleCompanyEdit}>Cancel</button>
+                  <button class="button primary" type="button" disabled={savingRoleCompany || !roleCompanyNameInput.trim()} on:click={saveRoleCompany}>
+                    {savingRoleCompany ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              {/if}
             </section>
           {/if}
 
@@ -2539,23 +2591,26 @@
             </section>
 
             <section class="panel detail-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">Role</p><h2>Role details</h2></div>
+                {#if !roleContactEditMode}
+                  <button class="button secondary" type="button" on:click={() => roleContactEditMode = true}>Edit</button>
+                {/if}
+              </div>
               <div class="address-edit-grid">
                 <label class="field-label">
                   <span>Name</span>
-                  <input type="text" bind:value={roleContactNameInput} />
+                  <input type="text" bind:value={roleContactNameInput} disabled={!roleContactEditMode} />
                 </label>
               </div>
-
-              <div class="modal-actions detail-actions">
-                <button
-                  class="button primary"
-                  type="button"
-                  disabled={savingRoleContact || !roleContactNameInput.trim()}
-                  on:click={saveRoleContact}
-                >
-                  {savingRoleContact ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+              {#if roleContactEditMode}
+                <div class="form-actions">
+                  <button class="button secondary" type="button" on:click={cancelRoleContactEdit}>Cancel</button>
+                  <button class="button primary" type="button" disabled={savingRoleContact || !roleContactNameInput.trim()} on:click={saveRoleContact}>
+                    {savingRoleContact ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              {/if}
             </section>
           {/if}
 
@@ -2618,6 +2673,9 @@
                   <p class="eyebrow">Phase</p>
                   <h2>Phase configuration</h2>
                 </div>
+                {#if !phaseEditMode}
+                  <button class="button secondary" type="button" on:click={() => phaseEditMode = true}>Edit</button>
+                {/if}
               </div>
 
               <div class="phase-detail-content">
@@ -2625,13 +2683,13 @@
                   <div class="phase-summary-row">
                     <label class="field-label">
                       <span>Name</span>
-                      <input bind:value={phaseDetailNameInput} type="text" required />
+                      <input bind:value={phaseDetailNameInput} type="text" disabled={!phaseEditMode} required />
                     </label>
                   </div>
                   <div class="address-edit-grid phase-detail-grid">
                     <label class="field-label">
                       <span>Role Type</span>
-                      <select bind:value={phaseTypeRoleInput}>
+                      <select bind:value={phaseTypeRoleInput} disabled={!phaseEditMode}>
                         <option value=""></option>
                         <option value="Company">Company</option>
                         <option value="Contact">Contact</option>
@@ -2641,7 +2699,7 @@
                     {#if phaseTypeRoleInput === 'Company'}
                       <label class="field-label">
                         <span>Company Role</span>
-                        <select bind:value={phaseRoleCompanyId}>
+                        <select bind:value={phaseRoleCompanyId} disabled={!phaseEditMode}>
                           <option value=""></option>
                           {#each rolesCompanies as role (role.id)}
                             <option value={role.id}>{role.name}</option>
@@ -2651,7 +2709,7 @@
                     {:else if phaseTypeRoleInput === 'Contact'}
                       <label class="field-label">
                         <span>Contact Role</span>
-                        <select bind:value={phaseRoleContactId}>
+                        <select bind:value={phaseRoleContactId} disabled={!phaseEditMode}>
                           <option value=""></option>
                           {#each rolesContacts as role (role.id)}
                             <option value={role.id}>{role.name}</option>
@@ -2661,15 +2719,14 @@
                     {/if}
                   </div>
 
-                  <div class="phase-detail-actions">
-                    <button
-                      class="button primary"
-                      type="submit"
-                      disabled={updatingPhase || !phaseDetailNameInput.trim()}
-                    >
-                      {updatingPhase ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
+                  {#if phaseEditMode}
+                    <div class="form-actions">
+                      <button class="button secondary" type="button" on:click={cancelPhaseEdit}>Cancel</button>
+                      <button class="button primary" type="submit" disabled={updatingPhase || !phaseDetailNameInput.trim()}>
+                        {updatingPhase ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  {/if}
                 </form>
               </div>
             </section>
