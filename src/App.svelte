@@ -282,6 +282,12 @@
   const contactDisplayName = (contact) =>
     [contact?.nameFirst, contact?.nameLast].filter(Boolean).join(' ')
 
+  const companyRoleName = (roleId) =>
+    rolesCompanies.find((role) => role.id === roleId)?.name ?? ''
+
+  const contactRoleName = (roleId) =>
+    rolesContacts.find((role) => role.id === roleId)?.name ?? ''
+
   function setHistoryCompany(dateRecord, companyId) {
     if (dateRecord?.flag_Complete || savingHistory) return
     historyDraft = historyDraft.map((item) =>
@@ -2470,7 +2476,7 @@
               <div class="empty-state compact"><h3>No Phases yet</h3><p>Create your first Phase above.</p></div>
             {:else}
               <div class="table-wrap">
-                <table><thead><tr><th class="drag-column"></th><th>Phase</th></tr></thead><tbody>
+                <table><thead><tr><th class="drag-column"></th><th>Phase</th><th>Role Type</th><th>Role</th></tr></thead><tbody>
                   {#each phases as phase (phase.id)}
                     <tr
                       class:phase-dragging={draggedPhaseId === phase.id}
@@ -2483,6 +2489,14 @@
                     >
                       <td class="drag-cell"><span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span></td>
                       <td class="phase-click-cell" on:click={() => openPhase(phase.id)}>{phase.name}</td>
+                      <td>{phase.typeRole || ''}</td>
+                      <td>
+                        {#if phase.typeRole === 'Company'}
+                          {companyRoleName(phase.id_RoleCompany)}
+                        {:else if phase.typeRole === 'Contact'}
+                          {contactRoleName(phase.id_RoleContact)}
+                        {/if}
+                      </td>
                     </tr>
                   {/each}
                 </tbody></table>
