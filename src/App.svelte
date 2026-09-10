@@ -11,6 +11,10 @@
   let email = ''
   let password = ''
   let signingIn = false
+  let employeeFirstInput = ''
+  let employeeLastInput = ''
+  let employeeEmailInput = ''
+  let savingEmployee = false
 
   let view = 'home'
   let jobs = []
@@ -520,7 +524,7 @@
       return
     }
 
-    if (['home', 'jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
+    if (['home', 'employee', 'jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
       await navigate(location.view, 'none')
       return
     }
@@ -603,7 +607,7 @@
     employee = null
     const { data, error } = await supabase
       .from('Employees')
-      .select('id, nameFirst, nameLast, id_User')
+      .select('id, nameFirst, nameLast, email, id_User')
       .eq('id_User', session.user.id)
       .maybeSingle()
 
@@ -618,6 +622,40 @@
     }
 
     employee = data
+    employeeFirstInput = data.nameFirst ?? ''
+    employeeLastInput = data.nameLast ?? ''
+    employeeEmailInput = data.email ?? ''
+  }
+
+  async function saveEmployeeProfile(event) {
+    event.preventDefault()
+    if (!employee || !employeeFirstInput.trim() || !employeeLastInput.trim()) return
+
+    savingEmployee = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Employees')
+      .update({
+        nameFirst: employeeFirstInput.trim(),
+        nameLast: employeeLastInput.trim(),
+        email: employeeEmailInput.trim() || null
+      })
+      .eq('id', employee.id)
+      .eq('id_User', session.user.id)
+      .select('id, nameFirst, nameLast, email, id_User')
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      employee = data
+      employeeFirstInput = data.nameFirst ?? ''
+      employeeLastInput = data.nameLast ?? ''
+      employeeEmailInput = data.email ?? ''
+    }
+
+    savingEmployee = false
   }
 
   async function signIn(event) {
@@ -1986,7 +2024,11 @@
       </nav>
 
       <div class="sidebar-user">
-        {#if employee}<div class="sidebar-user-name">{employeeName(employee)}</div>{/if}
+        {#if employee}
+          <button class="sidebar-user-name sidebar-user-link" type="button" on:click={() => navigate('employee')}>
+            {employeeName(employee)}
+          </button>
+        {/if}
         <button class="button ghost wide" on:click={signOut}>Sign out</button>
       </div>
     </aside>
@@ -2038,6 +2080,47 @@
             <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
             <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
             <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+          </section>
+        {:else if view === 'employee'}
+          <section class="detail-heading">
+            <div>
+              <p class="eyebrow">Employee details</p>
+              <h1>{employeeName(employee)}</h1>
+            </div>
+          </section>
+
+          <section class="panel detail-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">My profile</p>
+                <h2>Employee details</h2>
+              </div>
+            </div>
+
+            <form class="phase-detail-form" on:submit={saveEmployeeProfile}>
+              <div class="address-edit-grid">
+                <label class="field-label">
+                  <span>First Name</span>
+                  <input type="text" bind:value={employeeFirstInput} required />
+                </label>
+
+                <label class="field-label">
+                  <span>Last Name</span>
+                  <input type="text" bind:value={employeeLastInput} required />
+                </label>
+
+                <label class="field-label">
+                  <span>Email</span>
+                  <input type="email" bind:value={employeeEmailInput} />
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button class="button primary" type="submit" disabled={savingEmployee}>
+                  {savingEmployee ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
           </section>
         {:else if view === 'jobs'}
           <section class="page-heading">

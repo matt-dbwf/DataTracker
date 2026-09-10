@@ -895,3 +895,29 @@ tr.phase-drop-target td {
 .company-filter-row + tr th {
   padding-top: 0.5rem;
 }
+
+.sidebar-user-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-user-link:hover {
+  text-decoration: underline;
+}
+
+/* DataTracker convention: panel Save actions sit at the bottom-right. */
+.detail-panel .form-actions,
+.panel .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin-top: 1.25rem;
+}
