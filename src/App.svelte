@@ -333,24 +333,56 @@
   }
 
   async function loadAllContacts() {
-    const { data, error } = await supabase
-      .from('Contacts')
-      .select('id, nameFirst, nameLast, id_Company, id_Roles')
-      .order('nameLast', { ascending: true })
-      .order('nameFirst', { ascending: true })
+    const pageSize = 1000
+    const loadedContacts = []
 
-    if (error) appError = error.message
-    else allContacts = data ?? []
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from('Contacts')
+        .select('id, nameFirst, nameLast, id_Company, id_Roles')
+        .order('nameLast', { ascending: true })
+        .order('nameFirst', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1)
+
+      if (error) {
+        appError = error.message
+        return
+      }
+
+      const batch = data ?? []
+      loadedContacts.push(...batch)
+
+      if (batch.length < pageSize) break
+    }
+
+    allContacts = loadedContacts
   }
 
   async function loadCompanies() {
-    const { data, error } = await supabase
-      .from('Companies')
-      .select('id, name, id_Roles')
-      .order('name', { ascending: true })
+    const pageSize = 1000
+    const loadedCompanies = []
 
-    if (error) appError = error.message
-    else companies = data ?? []
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from('Companies')
+        .select('id, name, id_Roles')
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1)
+
+      if (error) {
+        appError = error.message
+        return
+      }
+
+      const batch = data ?? []
+      loadedCompanies.push(...batch)
+
+      if (batch.length < pageSize) break
+    }
+
+    companies = loadedCompanies
   }
 
   async function openCompany(companyId, historyMode = 'push') {
@@ -2214,6 +2246,10 @@
                 <p class="eyebrow">Overview</p>
                 <h2>Home</h2>
               </div>
+            </div>
+            <div class="home-navigation-actions">
+              <button class="button primary" type="button" on:click={() => navigate('pours')}>Pours</button>
+              <button class="button primary" type="button" on:click={() => navigate('companies')}>Companies</button>
             </div>
             <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
             <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
