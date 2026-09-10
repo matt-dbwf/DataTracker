@@ -12,7 +12,7 @@
   let password = ''
   let signingIn = false
 
-  let view = 'jobs'
+  let view = 'home'
   let jobs = []
   let allPours = []
   let allPourDates = []
@@ -464,14 +464,14 @@
   function appLocation() {
     const params = new URLSearchParams(window.location.search)
     return {
-      view: params.get('view') || 'jobs',
+      view: params.get('view') || 'home',
       id: params.get('id')
     }
   }
 
   function writeAppLocation(targetView, recordId = null, mode = 'push') {
     const url = new URL(window.location.href)
-    if (targetView === 'jobs') {
+    if (targetView === 'home') {
       url.searchParams.delete('view')
       url.searchParams.delete('id')
     } else {
@@ -520,12 +520,12 @@
       return
     }
 
-    if (['jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
+    if (['home', 'jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
       await navigate(location.view, 'none')
       return
     }
 
-    await navigate('jobs', 'replace')
+    await navigate('home', 'replace')
   }
 
   $: sortedAllPours = [...allPours].sort((a, b) => {
@@ -574,7 +574,7 @@
           selectedJob = null
           selectedPour = null
           pours = []
-          view = 'jobs'
+          view = 'home'
           loading = false
         }
       })
@@ -1951,9 +1951,9 @@
 {:else}
   <div class="app-shell">
     <aside class="sidebar">
-      <button class="sidebar-brand" on:click={() => navigate('jobs')} aria-label="Go to Jobs">
+      <button class="sidebar-brand" on:click={() => navigate('home')} aria-label="Go to Home">
         <span class="brand-mark small">DT</span>
-        <span><span class="eyebrow">DataTracker</span><strong>Operations</strong></span>
+        <span><strong>DataTracker</strong></span>
       </button>
 
       <nav class="side-nav" aria-label="Primary navigation">
@@ -2018,6 +2018,26 @@
             <p class="eyebrow">Account setup</p>
             <h2>Employee profile required</h2>
             <p>Your Supabase Auth user needs a matching record in <code>Employees.id_User</code>.</p>
+          </section>
+        {:else if view === 'home'}
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">Home</p>
+              <h1>DataTracker</h1>
+              <p>Welcome to the DataTracker home page.</p>
+            </div>
+          </section>
+
+          <section class="panel detail-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Overview</p>
+                <h2>Home</h2>
+              </div>
+            </div>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
+            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
           </section>
         {:else if view === 'jobs'}
           <section class="page-heading">
