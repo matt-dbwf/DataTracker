@@ -65,8 +65,11 @@
   let contactLastInput = ''
   let contactRoleIds = []
   let showContactCreateModal = false
+  let editingContact = null
+  let contactEditMode = false
   let creatingCompany = false
   let creatingContact = false
+  let deletingContactId = null
   let savingCompany = false
   let loadingCompany = false
   let selectedPhase = null
@@ -426,6 +429,8 @@
   }
 
   function openContactCreateModal() {
+    editingContact = null
+    contactEditMode = true
     contactFirstInput = ''
     contactLastInput = ''
     contactRoleIds = []
@@ -433,44 +438,125 @@
     showContactCreateModal = true
   }
 
+  function openContactEditModal(contact) {
+    editingContact = contact
+    contactEditMode = false
+    contactFirstInput = contact.nameFirst ?? ''
+    contactLastInput = contact.nameLast ?? ''
+    contactRoleIds = [...(contact.id_Roles ?? [])]
+    appError = ''
+    showContactCreateModal = true
+  }
+
   function closeContactCreateModal() {
     if (creatingContact) return
+    editingContact = null
+    contactEditMode = false
     contactFirstInput = ''
     contactLastInput = ''
     contactRoleIds = []
     showContactCreateModal = false
   }
 
-  async function createContact() {
+  function cancelContactEdit() {
+    if (!editingContact) {
+      closeContactCreateModal()
+      return
+    }
+
+    contactFirstInput = editingContact.nameFirst ?? ''
+    contactLastInput = editingContact.nameLast ?? ''
+    contactRoleIds = [...(editingContact.id_Roles ?? [])]
+    contactEditMode = false
+  }
+
+  async function saveContact() {
     if (!selectedCompany || !contactFirstInput.trim() || !contactLastInput.trim()) return
 
     creatingContact = true
     appError = ''
 
-    const { data, error } = await supabase
+    const contactPayload = {
+      nameFirst: contactFirstInput.trim(),
+      nameLast: contactLastInput.trim(),
+      id_Company: selectedCompany.id,
+      id_Roles: contactRoleIds
+    }
+
+    let query = supabase
       .from('Contacts')
-      .insert({
-        nameFirst: contactFirstInput.trim(),
-        nameLast: contactLastInput.trim(),
-        id_Company: selectedCompany.id,
-        id_Roles: contactRoleIds
-      })
+
+    query = editingContact
+      ? query.update(contactPayload).eq('id', editingContact.id).eq('id_Company', selectedCompany.id)
+      : query.insert(contactPayload)
+
+    const { data, error } = await query
       .select('id, nameFirst, nameLast, id_Company, id_Roles')
-      .single()
+      .maybeSingle()
+
+    if (error) {
+      appError = error.message
+    } else if (!data) {
+      appError = editingContact
+        ? 'This Contact could not be updated.'
+        : 'This Contact could not be created.'
+    } else {
+      if (editingContact) {
+        contacts = contacts
+          .map((contact) => contact.id === data.id ? data : contact)
+          .sort((a, b) => a.nameLast.localeCompare(b.nameLast) || a.nameFirst.localeCompare(b.nameFirst))
+        allContacts = allContacts.map((contact) => contact.id === data.id ? data : contact)
+      } else {
+        contacts = [...contacts, data].sort((a, b) =>
+          a.nameLast.localeCompare(b.nameLast) || a.nameFirst.localeCompare(b.nameFirst)
+        )
+        allContacts = [...allContacts, data].sort((a, b) =>
+          a.nameLast.localeCompare(b.nameLast) || a.nameFirst.localeCompare(b.nameFirst)
+        )
+      }
+
+      if (editingContact) {
+        editingContact = data
+        contactFirstInput = data.nameFirst ?? ''
+        contactLastInput = data.nameLast ?? ''
+        contactRoleIds = [...(data.id_Roles ?? [])]
+        contactEditMode = false
+      } else {
+        editingContact = null
+        contactEditMode = false
+        contactFirstInput = ''
+        contactLastInput = ''
+        contactRoleIds = []
+        showContactCreateModal = false
+      }
+    }
+
+    creatingContact = false
+  }
+
+  async function deleteContact(contact) {
+    if (!selectedCompany || !contact) return
+
+    const confirmed = window.confirm(`Delete ${contact.nameFirst} ${contact.nameLast}?`)
+    if (!confirmed) return
+
+    deletingContactId = contact.id
+    appError = ''
+
+    const { error } = await supabase
+      .from('Contacts')
+      .delete()
+      .eq('id', contact.id)
+      .eq('id_Company', selectedCompany.id)
 
     if (error) {
       appError = error.message
     } else {
-      contacts = [...contacts, data].sort((a, b) =>
-        a.nameLast.localeCompare(b.nameLast) || a.nameFirst.localeCompare(b.nameFirst)
-      )
-      contactFirstInput = ''
-      contactLastInput = ''
-      contactRoleIds = []
-      showContactCreateModal = false
+      contacts = contacts.filter((item) => item.id !== contact.id)
+      allContacts = allContacts.filter((item) => item.id !== contact.id)
     }
 
-    creatingContact = false
+    deletingContactId = null
   }
 
   function appLocation() {
@@ -683,10 +769,12 @@
       .eq('id', employee.id)
       .eq('id_User', session.user.id)
       .select('id, nameFirst, nameLast, email, id_User')
-      .single()
+      .maybeSingle()
 
     if (error) {
       appError = error.message
+    } else if (!data) {
+      appError = 'Your Employee record could not be updated. Check the Employees UPDATE RLS policy for the authenticated user.'
     } else {
       employee = data
       employeeFirstInput = data.nameFirst ?? ''
@@ -2448,14 +2536,37 @@
                         <th>First Name</th>
                         <th>Last Name</th>
                         <th>Roles</th>
+                        <th class="actions-column"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {#each contacts as contact (contact.id)}
-                        <tr>
+                        <tr
+                          class="clickable-row"
+                          role="button"
+                          tabindex="0"
+                          on:click={() => openContactEditModal(contact)}
+                          on:keydown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              openContactEditModal(contact)
+                            }
+                          }}
+                        >
                           <td>{contact.nameFirst}</td>
                           <td>{contact.nameLast}</td>
                           <td>{contactRoleNames(contact.id_Roles) || '—'}</td>
+                          <td class="actions-cell">
+                            <button
+                              class="button danger compact-button"
+                              type="button"
+                              disabled={deletingContactId === contact.id}
+                              on:click|stopPropagation={() => deleteContact(contact)}
+                              on:keydown|stopPropagation
+                            >
+                              {deletingContactId === contact.id ? 'Deleting…' : 'Delete'}
+                            </button>
+                          </td>
                         </tr>
                       {/each}
                     </tbody>
@@ -3129,8 +3240,11 @@
             <div class="contact-modal-header">
               <div>
                 <p class="eyebrow">Contact</p>
-                <h2 id="contact-create-title">New Contact</h2>
+                <h2 id="contact-create-title">{editingContact ? 'Contact Details' : 'New Contact'}</h2>
               </div>
+              {#if editingContact && !contactEditMode}
+                <button class="button secondary" type="button" on:click={() => contactEditMode = true}>Edit</button>
+              {/if}
             </div>
 
             <div class="contact-modal-content">
@@ -3141,7 +3255,8 @@
                     type="text"
                     bind:value={contactFirstInput}
                     autocomplete="given-name"
-                    />
+                    disabled={editingContact && !contactEditMode}
+                  />
                 </label>
 
                 <label class="field-label">
@@ -3150,11 +3265,12 @@
                     type="text"
                     bind:value={contactLastInput}
                     autocomplete="family-name"
-                    />
+                    disabled={editingContact && !contactEditMode}
+                  />
                 </label>
 
-                <div class="field-label contact-role-field">
-                  <span>Roles</span>
+                <fieldset class="field-label contact-role-field" disabled={editingContact && !contactEditMode}>
+                  <legend>Roles</legend>
                   {#if rolesContacts.length === 0}
                     <p class="inline-note">No Contact Roles have been created yet.</p>
                   {:else}
@@ -3171,23 +3287,41 @@
                       {/each}
                     </div>
                   {/if}
-                </div>
+                </fieldset>
               </div>
             </div>
 
             <div class="contact-modal-footer">
               <div class="modal-actions">
-                <button class="button secondary" type="button" disabled={creatingContact} on:click={closeContactCreateModal}>
-                  Cancel
-                </button>
-                <button
-                  class="button primary"
-                  type="button"
-                  disabled={creatingContact || !contactFirstInput.trim() || !contactLastInput.trim()}
-                  on:click={createContact}
-                >
-                  {creatingContact ? 'Saving…' : 'Save'}
-                </button>
+                {#if editingContact}
+                  {#if contactEditMode}
+                    <button class="button secondary" type="button" disabled={creatingContact} on:click={cancelContactEdit}>
+                      Cancel
+                    </button>
+                    <button
+                      class="button primary"
+                      type="button"
+                      disabled={creatingContact || !contactFirstInput.trim() || !contactLastInput.trim()}
+                      on:click={saveContact}
+                    >
+                      {creatingContact ? 'Saving…' : 'Save'}
+                    </button>
+                  {:else}
+                    <button class="button secondary" type="button" on:click={closeContactCreateModal}>Close</button>
+                  {/if}
+                {:else}
+                  <button class="button secondary" type="button" disabled={creatingContact} on:click={closeContactCreateModal}>
+                    Cancel
+                  </button>
+                  <button
+                    class="button primary"
+                    type="button"
+                    disabled={creatingContact || !contactFirstInput.trim() || !contactLastInput.trim()}
+                    on:click={saveContact}
+                  >
+                    {creatingContact ? 'Saving…' : 'Save'}
+                  </button>
+                {/if}
               </div>
             </div>
           </section>

@@ -928,3 +928,41 @@ tr.phase-drop-target td {
   gap: 0.75rem;
   margin-top: 1.25rem;
 }
+
+.contact-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.actions-column,
+.actions-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.actions-cell {
+  text-align: right;
+}
+
+/* DataTracker convention: all interactive/clickable controls use the hand cursor. */
+button:not(:disabled),
+a[href],
+.clickable-row,
+.record-link,
+[role="button"]:not([aria-disabled="true"]),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+select:not(:disabled),
+label:has(input[type="checkbox"]:not(:disabled)),
+label:has(input[type="radio"]:not(:disabled)) {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
