@@ -2450,10 +2450,19 @@
                   </thead>
                   <tbody>
                     {#each filteredCompanies as company (company.id)}
-                      <tr>
-                        <td class="pour-open-cell" role="button" tabindex="0" on:click={() => openCompany(company.id)} on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openCompany(company.id)}>
-                          <span class="record-link">{company.name}</span>
-                        </td>
+                      <tr
+                        class="clickable-row"
+                        role="button"
+                        tabindex="0"
+                        on:click={() => openCompany(company.id)}
+                        on:keydown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            openCompany(company.id)
+                          }
+                        }}
+                      >
+                        <td>{company.name}</td>
                         <td>{companyRoleNames(company.id_Roles) || '—'}</td>
                       </tr>
                     {/each}
@@ -2748,16 +2757,26 @@
                 <table><thead><tr><th class="drag-column"></th><th>Phase</th><th>Role Type</th><th>Role</th></tr></thead><tbody>
                   {#each phases as phase (phase.id)}
                     <tr
+                      class="clickable-row"
                       class:phase-dragging={draggedPhaseId === phase.id}
                       class:phase-drop-target={phaseDropTargetId === phase.id && draggedPhaseId !== phase.id}
                       draggable="true"
+                      role="button"
+                      tabindex="0"
+                      on:click={() => openPhase(phase.id)}
+                      on:keydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openPhase(phase.id)
+                        }
+                      }}
                       on:dragstart={() => startPhaseDrag(phase.id)}
                       on:dragover|preventDefault={() => overPhaseDrag(phase.id)}
                       on:drop|preventDefault={() => dropPhaseOn(phase.id)}
                       on:dragend={endPhaseDrag}
                     >
-                      <td class="drag-cell"><span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span></td>
-                      <td class="phase-click-cell" on:click={() => openPhase(phase.id)}>{phase.name}</td>
+                      <td class="drag-cell" on:click|stopPropagation on:keydown|stopPropagation><span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span></td>
+                      <td>{phase.name}</td>
                       <td>{phase.typeRole || ''}</td>
                       <td>
                         {#if phase.typeRole === 'Company'}
