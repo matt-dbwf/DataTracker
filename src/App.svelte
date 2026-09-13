@@ -1,4 +1,5 @@
 <script>
+  import SearchableRoleSelect from './lib/SearchableRoleSelect.svelte'
   import { onMount } from 'svelte'
   import { supabase, isSupabaseConfigured } from './lib/supabase.js'
 
@@ -65,6 +66,9 @@
   let selectedCompany = null
   let contacts = []
   let allContacts = []
+  let dateHistoryCompanies = []
+  let dateHistoryContacts = []
+  let loadingDateHistoryRoles = false
   let companyNameInput = ''
   let companyRoleIds = []
   let contactFirstInput = ''
@@ -248,9 +252,10 @@
         )
     : []
 
+
   async function openDateHistory(phaseId, pour = selectedPour) {
     if (pour) selectedPour = pour
-    await Promise.all([loadAllRoleCompanies(), loadAllContacts()])
+
     dateHistoryPhaseId = phaseId
     const sourceDates = pour
       ? allPourDates.filter((d) => d.id_Pour === pour.id && d.id_Phase === phaseId)
@@ -260,6 +265,9 @@
     showHistoryDateCreate = false
     historyDateStartInput = ''
     historyError = ''
+
+    dateHistoryCompanies = []
+    dateHistoryContacts = []
   }
 
   function closeDateHistory() {
@@ -270,6 +278,9 @@
     showHistoryDateCreate = false
     historyDateStartInput = ''
     historyError = ''
+    dateHistoryCompanies = []
+    dateHistoryContacts = []
+    loadingDateHistoryRoles = false
   }
 
   const companyRoleNames = (roleIds) =>
@@ -284,15 +295,6 @@
       .filter(Boolean)
       .join(', ')
 
-  function companiesForPhase(phase) {
-    if (!phase?.id_RoleCompany) return []
-    return allRoleCompanies.filter((company) => (company.id_Roles ?? []).includes(phase.id_RoleCompany))
-  }
-
-  function contactsForPhase(phase) {
-    if (!phase?.id_RoleContact) return []
-    return allContacts.filter((contact) => (contact.id_Roles ?? []).includes(phase.id_RoleContact))
-  }
 
   const contactDisplayName = (contact) =>
     [contact?.nameFirst, contact?.nameLast].filter(Boolean).join(' ')
@@ -1412,6 +1414,108 @@
     savingPourListDateKey = null
   }
 
+
+  async function searchRoleOptions(type, phase, searchText = '', selectedId = '') {
+    if (!phase) return []
+
+    const search = searchText.trim()
+    const limit = 50
+
+    if (type === 'Company') {
+      if (!phase.id_RoleCompany) return []
+
+      let query = supabase
+        .from('Companies')
+        .select('id, name')
+        .contains('id_Roles', [phase.id_RoleCompany])
+        .order('name', { ascending: true })
+        .limit(limit)
+
+      if (search) {
+        query = query.ilike('name', `%${search}%`)
+      }
+
+      const { data, error } = await query
+      if (error) {
+        appError = error.message
+        return []
+      }
+
+      let rows = (data ?? []).map((company) => ({
+        id: company.id,
+        label: company.name
+      }))
+
+      if (selectedId && !rows.some((row) => row.id === selectedId)) {
+        const { data: selected, error: selectedError } = await supabase
+          .from('Companies')
+          .select('id, name')
+          .eq('id', selectedId)
+          .maybeSingle()
+
+        if (!selectedError && selected) {
+          rows = [{ id: selected.id, label: selected.name }, ...rows]
+        }
+      }
+
+      return rows
+    }
+
+    if (type === 'Contact') {
+      if (!phase.id_RoleContact) return []
+
+      let query = supabase
+        .from('Contacts')
+        .select('id, nameFirst, nameLast')
+        .contains('id_Roles', [phase.id_RoleContact])
+        .order('nameLast', { ascending: true })
+        .order('nameFirst', { ascending: true })
+        .limit(limit)
+
+      if (search) {
+        const tokens = search
+          .replace(/[%_,()]/g, ' ')
+          .split(/\s+/)
+          .map((token) => token.trim())
+          .filter(Boolean)
+
+        for (const token of tokens) {
+          query = query.or(`nameFirst.ilike.%${token}%,nameLast.ilike.%${token}%`)
+        }
+      }
+
+      const { data, error } = await query
+      if (error) {
+        appError = error.message
+        return []
+      }
+
+      let rows = (data ?? []).map((contact) => ({
+        id: contact.id,
+        label: contactDisplayName(contact)
+      }))
+
+      if (selectedId && !rows.some((row) => row.id === selectedId)) {
+        const { data: selected, error: selectedError } = await supabase
+          .from('Contacts')
+          .select('id, nameFirst, nameLast')
+          .eq('id', selectedId)
+          .maybeSingle()
+
+        if (!selectedError && selected) {
+          rows = [{
+            id: selected.id,
+            label: contactDisplayName(selected)
+          }, ...rows]
+        }
+      }
+
+      return rows
+    }
+
+    return []
+  }
+
   async function savePourListRoleAssignment(dateRecord, phase, value) {
     if (!dateRecord || !phase || dateRecord.flag_Complete || !pourPhaseIsActive(dateRecord.id_Pour, phase.id)) return
 
@@ -1902,7 +2006,7 @@
     roleCompanyEditMode = false
     roleContactEditMode = false
     if (target === 'jobs') await loadJobs()
-    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadAllRoleCompanies(), loadAllContacts()])
+    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
     if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
     if (target === 'companies') {
       companyPage = 0
@@ -2432,31 +2536,29 @@
                             />
                             {#if phase.typeRole === 'Company'}
                               <label class="pour-list-role-field">
-                                <select
+                                <SearchableRoleSelect
                                   value={phaseDate?.id_Company ?? ''}
+                                  type="Company"
+                                  {phase}
                                   disabled={!phaseActive || !phaseDate || phaseDate.flag_Complete}
-                                  aria-label={`${pourIdentifier(pour)} ${phase.name} company`}
-                                  on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
-                                >
-                                  <option value="">{phaseDate?.flag_Complete ? '' : 'Select Company'}</option>
-                                  {#each companiesForPhase(phase) as company (company.id)}
-                                    <option value={company.id}>{company.name}</option>
-                                  {/each}
-                                </select>
+                                  ariaLabel={`${pourIdentifier(pour)} ${phase.name} company`}
+                                  placeholder="Select Company"
+                                  searchOptions={searchRoleOptions}
+                                  onSelect={(value) => savePourListRoleAssignment(phaseDate, phase, value)}
+                                />
                               </label>
                             {:else if phase.typeRole === 'Contact'}
                               <label class="pour-list-role-field">
-                                <select
+                                <SearchableRoleSelect
                                   value={phaseDate?.id_Contact ?? ''}
+                                  type="Contact"
+                                  {phase}
                                   disabled={!phaseActive || !phaseDate || phaseDate.flag_Complete}
-                                  aria-label={`${pourIdentifier(pour)} ${phase.name} contact`}
-                                  on:change={(event) => savePourListRoleAssignment(phaseDate, phase, event.currentTarget.value)}
-                                >
-                                  <option value="">{phaseDate?.flag_Complete ? '' : 'Select Contact'}</option>
-                                  {#each contactsForPhase(phase) as contact (contact.id)}
-                                    <option value={contact.id}>{contactDisplayName(contact)}</option>
-                                  {/each}
-                                </select>
+                                  ariaLabel={`${pourIdentifier(pour)} ${phase.name} contact`}
+                                  placeholder="Select Contact"
+                                  searchOptions={searchRoleOptions}
+                                  onSelect={(value) => savePourListRoleAssignment(phaseDate, phase, value)}
+                                />
                               </label>
                             {/if}
 
@@ -3296,33 +3398,29 @@
                         <td><input type="checkbox" checked={relatedDate.flag_Complete} disabled={savingHistory} aria-label={`Set ${phaseName(relatedDate.id_Phase)} date completion`} on:change={(event) => setHistoryDateComplete(relatedDate, event.currentTarget.checked)} /></td>
                         {#if dateHistoryPhase?.typeRole === 'Company'}
                           <td class="role-cell">
-                            <select
-                              class="history-role-select"
+                            <SearchableRoleSelect
                               value={relatedDate.id_Company ?? ''}
+                              type="Company"
+                              phase={dateHistoryPhase}
                               disabled={savingHistory || relatedDate.flag_Complete}
-                              aria-label={`${phaseName(relatedDate.id_Phase)} company`}
-                              on:change={(event) => setHistoryCompany(relatedDate, event.currentTarget.value)}
-                            >
-                              <option value=""></option>
-                              {#each companiesForPhase(dateHistoryPhase) as company (company.id)}
-                                <option value={company.id}>{company.name}</option>
-                              {/each}
-                            </select>
+                              ariaLabel={`${phaseName(relatedDate.id_Phase)} company`}
+                              placeholder="Select Company"
+                              searchOptions={searchRoleOptions}
+                              onSelect={(value) => setHistoryCompany(relatedDate, value)}
+                            />
                           </td>
                         {:else if dateHistoryPhase?.typeRole === 'Contact'}
                           <td class="role-cell">
-                            <select
-                              class="history-role-select"
+                            <SearchableRoleSelect
                               value={relatedDate.id_Contact ?? ''}
+                              type="Contact"
+                              phase={dateHistoryPhase}
                               disabled={savingHistory || relatedDate.flag_Complete}
-                              aria-label={`${phaseName(relatedDate.id_Phase)} contact`}
-                              on:change={(event) => setHistoryContact(relatedDate, event.currentTarget.value)}
-                            >
-                              <option value=""></option>
-                              {#each contactsForPhase(dateHistoryPhase) as contact (contact.id)}
-                                <option value={contact.id}>{contactDisplayName(contact)}</option>
-                              {/each}
-                            </select>
+                              ariaLabel={`${phaseName(relatedDate.id_Phase)} contact`}
+                              placeholder="Select Contact"
+                              searchOptions={searchRoleOptions}
+                              onSelect={(value) => setHistoryContact(relatedDate, value)}
+                            />
                           </td>
                         {/if}
                         <td class="row-actions">
