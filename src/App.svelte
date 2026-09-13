@@ -54,8 +54,14 @@
   let loadingRoleContact = false
 
   let companies = []
+  let allRoleCompanies = []
   let companySearchInput = ''
   let companyRoleSearchId = ''
+  let companyPage = 0
+  let companyPageSize = 100
+  let companyTotal = 0
+  let loadingCompanies = false
+  let companySearchTimer = null
   let selectedCompany = null
   let contacts = []
   let allContacts = []
@@ -74,10 +80,7 @@
   let loadingCompany = false
   let selectedPhase = null
 
-  $: filteredCompanies = companies.filter((company) =>
-    company.name.toLowerCase().includes(companySearchInput.trim().toLowerCase()) &&
-    (!companyRoleSearchId || (company.id_Roles ?? []).includes(companyRoleSearchId))
-  )
+  $: companyPageCount = Math.max(1, Math.ceil(companyTotal / companyPageSize))
   $: companyRoleFilterWidth = Math.max(
     'All Company Roles'.length,
     ...rolesCompanies.map((role) => role.name.length)
@@ -247,7 +250,7 @@
 
   async function openDateHistory(phaseId, pour = selectedPour) {
     if (pour) selectedPour = pour
-    await Promise.all([loadCompanies(), loadAllContacts()])
+    await Promise.all([loadAllRoleCompanies(), loadAllContacts()])
     dateHistoryPhaseId = phaseId
     const sourceDates = pour
       ? allPourDates.filter((d) => d.id_Pour === pour.id && d.id_Phase === phaseId)
@@ -283,7 +286,7 @@
 
   function companiesForPhase(phase) {
     if (!phase?.id_RoleCompany) return []
-    return companies.filter((company) => (company.id_Roles ?? []).includes(phase.id_RoleCompany))
+    return allRoleCompanies.filter((company) => (company.id_Roles ?? []).includes(phase.id_RoleCompany))
   }
 
   function contactsForPhase(phase) {
@@ -359,7 +362,7 @@
     allContacts = loadedContacts
   }
 
-  async function loadCompanies() {
+  async function loadAllRoleCompanies() {
     const pageSize = 1000
     const loadedCompanies = []
 
@@ -378,11 +381,62 @@
 
       const batch = data ?? []
       loadedCompanies.push(...batch)
-
       if (batch.length < pageSize) break
     }
 
-    companies = loadedCompanies
+    allRoleCompanies = loadedCompanies
+  }
+
+  async function loadCompanies(page = companyPage) {
+    loadingCompanies = true
+    appError = ''
+
+    let query = supabase
+      .from('Companies')
+      .select('id, name, id_Roles', { count: 'exact' })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+
+    const search = companySearchInput.trim()
+    if (search) query = query.ilike('name', `%${search}%`)
+    if (companyRoleSearchId) query = query.contains('id_Roles', [companyRoleSearchId])
+
+    const from = page * companyPageSize
+    const to = from + companyPageSize - 1
+
+    const { data, error, count } = await query.range(from, to)
+
+    if (error) {
+      appError = error.message
+      companies = []
+      companyTotal = 0
+    } else {
+      companies = data ?? []
+      companyTotal = count ?? 0
+      companyPage = page
+    }
+
+    loadingCompanies = false
+  }
+
+  function scheduleCompanySearch() {
+    if (companySearchTimer) clearTimeout(companySearchTimer)
+    companySearchTimer = setTimeout(() => {
+      companyPage = 0
+      loadCompanies(0)
+    }, 250)
+  }
+
+  function changeCompanyPage(nextPage) {
+    const boundedPage = Math.max(0, Math.min(nextPage, companyPageCount - 1))
+    if (boundedPage === companyPage) return
+    loadCompanies(boundedPage)
+  }
+
+  function changeCompanyPageSize(nextPageSize) {
+    companyPageSize = Number(nextPageSize)
+    companyPage = 0
+    loadCompanies(0)
   }
 
   async function openCompany(companyId, historyMode = 'push') {
@@ -696,6 +750,7 @@
           allPours = []
           phases = []
           companies = []
+          allRoleCompanies = []
           selectedCompany = null
           contacts = []
           selectedPhase = null
@@ -723,7 +778,7 @@
     appError = ''
     await loadEmployee()
     if (employee) {
-      await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
+      await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadRolesCompanies(), loadRolesContacts()])
       await restoreAppLocation()
     }
     loading = false
@@ -1847,9 +1902,12 @@
     roleCompanyEditMode = false
     roleContactEditMode = false
     if (target === 'jobs') await loadJobs()
-    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadCompanies(), loadAllContacts()])
+    if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases(), loadAllRoleCompanies(), loadAllContacts()])
     if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
-    if (target === 'companies') await Promise.all([loadCompanies(), loadRolesCompanies(), loadRolesContacts()])
+    if (target === 'companies') {
+      companyPage = 0
+      await Promise.all([loadCompanies(0), loadRolesCompanies(), loadRolesContacts()])
+    }
     if (target === 'roles-companies') await loadRolesCompanies()
     if (target === 'roles-contacts') await loadRolesContacts()
   }
@@ -2445,47 +2503,52 @@
           <section class="panel">
 
 
-            {#if companies.length === 0}
-              <div class="empty-state compact"><p>No Companies found.</p></div>
-            {:else if filteredCompanies.length === 0}
-              <div class="empty-state compact"><p>No Companies match your search.</p></div>
-            {:else}
-              <div class="table-wrap">
-                <table class="companies-table">
-                  <thead>
-                    <tr class="company-filter-row">
-                      <th>
-                        <label class="field-label company-search-field">
-                          <input
-                            type="search"
-                            placeholder="Search by company name"
-                            aria-label="Search Companies"
-                            bind:value={companySearchInput}
-                          />
-                        </label>
-                      </th>
-                      <th>
-                        <label class="field-label company-role-search-field">
-                          <select
-                            bind:value={companyRoleSearchId}
-                            aria-label="Filter Companies by role"
-                            style={`width: ${companyRoleFilterWidth}ch`}
-                          >
-                            <option value="">All Company Roles</option>
-                            {#each rolesCompanies as role (role.id)}
-                              <option value={role.id}>{role.name}</option>
-                            {/each}
-                          </select>
-                        </label>
-                      </th>
-                    </tr>
-                    <tr>
-                      <th>Name</th>
-                      <th>Roles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each filteredCompanies as company (company.id)}
+            <div class="table-wrap">
+              <table class="companies-table">
+                <thead>
+                  <tr class="company-filter-row">
+                    <th>
+                      <label class="field-label company-search-field">
+                        <input
+                          type="search"
+                          placeholder="Search by company name"
+                          aria-label="Search Companies"
+                          bind:value={companySearchInput}
+                          on:input={scheduleCompanySearch}
+                        />
+                      </label>
+                    </th>
+                    <th>
+                      <label class="field-label company-role-search-field">
+                        <select
+                          bind:value={companyRoleSearchId}
+                          aria-label="Filter Companies by role"
+                          style={`width: ${companyRoleFilterWidth}ch`}
+                          on:change={() => {
+                            companyPage = 0
+                            loadCompanies(0)
+                          }}
+                        >
+                          <option value="">All Company Roles</option>
+                          {#each rolesCompanies as role (role.id)}
+                            <option value={role.id}>{role.name}</option>
+                          {/each}
+                        </select>
+                      </label>
+                    </th>
+                  </tr>
+                  <tr>
+                    <th>Name</th>
+                    <th>Roles</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#if loadingCompanies}
+                    <tr><td colspan="2">Loading Companies…</td></tr>
+                  {:else if companies.length === 0}
+                    <tr><td colspan="2">No Companies match your search.</td></tr>
+                  {:else}
+                    {#each companies as company (company.id)}
                       <tr
                         class="clickable-row"
                         role="button"
@@ -2502,10 +2565,57 @@
                         <td>{companyRoleNames(company.id_Roles) || '—'}</td>
                       </tr>
                     {/each}
-                  </tbody>
-                </table>
+                  {/if}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="company-pagination">
+              <div class="company-pagination-actions">
+                <label class="company-page-size-selector">
+                  <span>Rows per page</span>
+                  <select
+                    value={companyPageSize}
+                    disabled={loadingCompanies}
+                    aria-label="Select Companies rows per page"
+                    on:change={(event) => changeCompanyPageSize(event.currentTarget.value)}
+                  >
+                    <option value={100}>100</option>
+                    <option value={500}>500</option>
+                    <option value={1000}>1000</option>
+                  </select>
+                </label>
+
+                <button
+                  class="button secondary compact-button"
+                  type="button"
+                  disabled={loadingCompanies || companyPage === 0}
+                  on:click={() => changeCompanyPage(companyPage - 1)}
+                >Previous</button>
+
+                <label class="company-page-selector">
+                  <span>Page</span>
+                  <select
+                    value={companyPage}
+                    disabled={loadingCompanies || companyPageCount <= 1}
+                    aria-label="Select Company page"
+                    on:change={(event) => changeCompanyPage(Number(event.currentTarget.value))}
+                  >
+                    {#each Array(companyPageCount) as _, pageIndex}
+                      <option value={pageIndex}>{pageIndex + 1}</option>
+                    {/each}
+                  </select>
+                  <span>of {companyPageCount}</span>
+                </label>
+
+                <button
+                  class="button secondary compact-button"
+                  type="button"
+                  disabled={loadingCompanies || companyPage >= companyPageCount - 1}
+                  on:click={() => changeCompanyPage(companyPage + 1)}
+                >Next</button>
               </div>
-            {/if}
+            </div>
           </section>
 
         {:else if view === 'company'}

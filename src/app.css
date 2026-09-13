@@ -973,3 +973,51 @@ select:disabled,
   gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
+
+.company-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0 0;
+}
+
+.company-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+@media (max-width: 820px) {
+  .company-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.company-pagination {
+  justify-content: flex-end;
+}
+
+.company-page-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.company-page-selector select {
+  width: auto;
+  min-width: 4.5rem;
+}
+
+.company-page-size-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.company-page-size-selector select {
+  width: auto;
+  min-width: 4.5rem;
+}
