@@ -113,3 +113,20 @@ New Dates default dateFinish to dateStart when no finish is supplied. Inline cre
 
 ## Date start shifting
 When an existing Date start value is changed inline on Pour detail, the app preserves the existing day gap between `dateStart` and `dateFinish` and moves `dateFinish` by the same amount. This allows the new start date to be entered even when it is later than the old finish date.
+
+
+## Employee and User Management
+
+Managers can access the Employees module. Employees may exist without a login account.
+
+- Create Employee creates only an Employees record.
+- Create User creates a Supabase Auth user and links it to the existing Employee.
+- Updating the email on a linked Employee also updates the Supabase Auth login email.
+- A user created manually in the Supabase dashboard is automatically given a related Employee record by the database trigger and starts with Manager access enabled.
+
+Two Edge Functions are included:
+
+- `supabase/functions/create-employee-user`
+- `supabase/functions/update-employee`
+
+Deploy both functions after running the supplied SQL migration.

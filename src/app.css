@@ -1103,3 +1103,55 @@ select:disabled,
   padding: 0.7rem;
   opacity: 0.7;
 }
+
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.readonly-value {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0.8;
+}
+
+.employee-manager-field input[type="checkbox"],
+.checkbox-line input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+}
+
+.employee-manager-field input[type="checkbox"] {
+  margin-top: 0.75rem;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  cursor: pointer;
+}
+
+
+.field-label small {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+
+.field-label small.field-error {
+  opacity: 1;
+  font-weight: 600;
+}

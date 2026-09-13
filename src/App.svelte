@@ -22,6 +22,31 @@
   let roleCompanyEditMode = false
   let roleContactEditMode = false
 
+  let employees = []
+  let selectedEmployeeRecord = null
+  let employeeRecordFirstInput = ''
+  let employeeRecordLastInput = ''
+  let employeeRecordEmailInput = ''
+  let employeeRecordManagerInput = false
+  let employeeRecordEditMode = false
+  let loadingEmployees = false
+  let loadingEmployeeRecord = false
+  let creatingEmployeeRecord = false
+  let savingEmployeeRecord = false
+  let showEmployeeCreateModal = false
+  let newEmployeeFirstInput = ''
+  let newEmployeeLastInput = ''
+  let newEmployeeEmailInput = ''
+  let newEmployeeManagerInput = false
+  let newEmployeeError = ''
+
+  let showCreateUserModal = false
+  let createUserEmailInput = ''
+  let createUserPasswordInput = ''
+  let createUserManagerInput = false
+  let creatingEmployeeUser = false
+  let createUserError = ''
+
   let view = 'home'
   let jobs = []
   let allPours = []
@@ -706,7 +731,12 @@
       return
     }
 
-    if (['home', 'employee', 'jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts'].includes(location.view)) {
+    if (location.view === 'employee-record' && location.id && employee?.flag_Manager) {
+      await openEmployeeRecord(location.id, 'none')
+      return
+    }
+
+    if (['home', 'employee', 'jobs', 'pours', 'phases', 'companies', 'roles-companies', 'roles-contacts', 'employees'].includes(location.view)) {
       await navigate(location.view, 'none')
       return
     }
@@ -748,6 +778,8 @@
           await bootstrapApp()
         } else {
           employee = null
+          employees = []
+          selectedEmployeeRecord = null
           jobs = []
           allPours = []
           phases = []
@@ -790,7 +822,7 @@
     employee = null
     const { data, error } = await supabase
       .from('Employees')
-      .select('id, nameFirst, nameLast, email, id_User')
+      .select('id, nameFirst, nameLast, email, id_User, flag_Manager')
       .eq('id_User', session.user.id)
       .maybeSingle()
 
@@ -848,31 +880,293 @@
     savingEmployee = true
     appError = ''
 
-    const { data, error } = await supabase
-      .from('Employees')
-      .update({
+    const { data, error } = await supabase.functions.invoke('update-employee', {
+      body: {
+        employeeId: employee.id,
         nameFirst: employeeFirstInput.trim(),
         nameLast: employeeLastInput.trim(),
-        email: employeeEmailInput.trim() || null
-      })
-      .eq('id', employee.id)
-      .eq('id_User', session.user.id)
-      .select('id, nameFirst, nameLast, email, id_User')
-      .maybeSingle()
+        email: employeeEmailInput.trim() || null,
+        flagManager: !!employee.flag_Manager
+      }
+    })
 
     if (error) {
-      appError = error.message
-    } else if (!data) {
-      appError = 'Your Employee record could not be updated. Check the Employees UPDATE RLS policy for the authenticated user.'
+      let message = error.message
+      try {
+        const context = error.context
+        if (context && typeof context.json === 'function') {
+          const body = await context.json()
+          if (body?.error) message = body.error
+        }
+      } catch (_) {}
+      appError = message
+    } else if (!data?.employee) {
+      appError = 'The Employee update returned an incomplete response.'
     } else {
-      employee = data
-      employeeFirstInput = data.nameFirst ?? ''
-      employeeLastInput = data.nameLast ?? ''
-      employeeEmailInput = data.email ?? ''
+      employee = data.employee
+      employeeFirstInput = data.employee.nameFirst ?? ''
+      employeeLastInput = data.employee.nameLast ?? ''
+      employeeEmailInput = data.employee.email ?? ''
       employeeEditMode = false
     }
 
     savingEmployee = false
+  }
+
+
+
+  async function loadEmployees() {
+    if (!employee?.flag_Manager) {
+      employees = []
+      return
+    }
+
+    loadingEmployees = true
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Employees')
+      .select('id, nameFirst, nameLast, email, id_User, flag_Manager')
+      .order('nameLast', { ascending: true })
+      .order('nameFirst', { ascending: true })
+      .order('id', { ascending: true })
+
+    if (error) {
+      appError = error.message
+      employees = []
+    } else {
+      employees = data ?? []
+    }
+
+    loadingEmployees = false
+  }
+
+  function createEmployeeRecord() {
+    if (!employee?.flag_Manager || creatingEmployeeRecord) return
+
+    newEmployeeFirstInput = ''
+    newEmployeeLastInput = ''
+    newEmployeeEmailInput = ''
+    newEmployeeManagerInput = false
+    newEmployeeError = ''
+    showEmployeeCreateModal = true
+  }
+
+  function closeEmployeeCreateModal() {
+    if (creatingEmployeeRecord) return
+
+    showEmployeeCreateModal = false
+    newEmployeeFirstInput = ''
+    newEmployeeLastInput = ''
+    newEmployeeEmailInput = ''
+    newEmployeeManagerInput = false
+    newEmployeeError = ''
+  }
+
+  async function saveNewEmployee(event) {
+    event.preventDefault()
+    if (!employee?.flag_Manager || creatingEmployeeRecord) return
+
+    const nameFirst = newEmployeeFirstInput.trim()
+    const nameLast = newEmployeeLastInput.trim()
+    const emailValue = newEmployeeEmailInput.trim()
+
+    if (!nameFirst || !nameLast) {
+      newEmployeeError = 'First Name and Last Name are required.'
+      return
+    }
+
+    creatingEmployeeRecord = true
+    newEmployeeError = ''
+    appError = ''
+
+    const { data, error } = await supabase
+      .from('Employees')
+      .insert({
+        nameFirst,
+        nameLast,
+        email: emailValue || null,
+        id_User: null,
+        flag_Manager: !!newEmployeeManagerInput
+      })
+      .select('id, nameFirst, nameLast, email, id_User, flag_Manager')
+      .single()
+
+    if (error) {
+      newEmployeeError = error.message
+      creatingEmployeeRecord = false
+      return
+    }
+
+    employees = [...employees, data].sort((a, b) =>
+      (a.nameLast ?? '').localeCompare(b.nameLast ?? '') ||
+      (a.nameFirst ?? '').localeCompare(b.nameFirst ?? '') ||
+      a.id.localeCompare(b.id)
+    )
+
+    creatingEmployeeRecord = false
+    closeEmployeeCreateModal()
+    await openEmployeeRecord(data.id)
+  }
+
+
+  async function openEmployeeRecord(employeeId, historyMode = 'push') {
+    if (!employee?.flag_Manager) {
+      await navigate('home', historyMode)
+      return
+    }
+
+    writeAppLocation('employee-record', employeeId, historyMode)
+    view = 'employee-record'
+    loadingEmployeeRecord = true
+    appError = ''
+    selectedEmployeeRecord = null
+    employeeRecordEditMode = false
+
+    const { data, error } = await supabase
+      .from('Employees')
+      .select('id, nameFirst, nameLast, email, id_User, flag_Manager')
+      .eq('id', employeeId)
+      .single()
+
+    if (error) {
+      appError = error.message
+    } else {
+      selectedEmployeeRecord = data
+      employeeRecordFirstInput = data.nameFirst ?? ''
+      employeeRecordLastInput = data.nameLast ?? ''
+      employeeRecordEmailInput = data.email ?? ''
+      employeeRecordManagerInput = !!data.flag_Manager
+    }
+
+    loadingEmployeeRecord = false
+  }
+
+  function cancelEmployeeRecordEdit() {
+    employeeRecordFirstInput = selectedEmployeeRecord?.nameFirst ?? ''
+    employeeRecordLastInput = selectedEmployeeRecord?.nameLast ?? ''
+    employeeRecordEmailInput = selectedEmployeeRecord?.email ?? ''
+    employeeRecordManagerInput = !!selectedEmployeeRecord?.flag_Manager
+    employeeRecordEditMode = false
+  }
+
+  async function saveEmployeeRecord(event) {
+    event.preventDefault()
+    if (!employee?.flag_Manager || !selectedEmployeeRecord) return
+    if (!employeeRecordFirstInput.trim() || !employeeRecordLastInput.trim()) return
+
+    savingEmployeeRecord = true
+    appError = ''
+
+    const { data, error } = await supabase.functions.invoke('update-employee', {
+      body: {
+        employeeId: selectedEmployeeRecord.id,
+        nameFirst: employeeRecordFirstInput.trim(),
+        nameLast: employeeRecordLastInput.trim(),
+        email: employeeRecordEmailInput.trim() || null,
+        flagManager: !!employeeRecordManagerInput
+      }
+    })
+
+    if (error) {
+      let message = error.message
+      try {
+        const context = error.context
+        if (context && typeof context.json === 'function') {
+          const body = await context.json()
+          if (body?.error) message = body.error
+        }
+      } catch (_) {}
+      appError = message
+    } else if (!data?.employee) {
+      appError = 'The Employee update returned an incomplete response.'
+    } else {
+      selectedEmployeeRecord = data.employee
+      employees = employees.map((item) => item.id === data.employee.id ? data.employee : item)
+
+      employeeRecordFirstInput = data.employee.nameFirst ?? ''
+      employeeRecordLastInput = data.employee.nameLast ?? ''
+      employeeRecordEmailInput = data.employee.email ?? ''
+      employeeRecordManagerInput = !!data.employee.flag_Manager
+      employeeRecordEditMode = false
+
+      if (data.employee.id === employee.id) {
+        employee = { ...employee, ...data.employee }
+        employeeFirstInput = data.employee.nameFirst ?? ''
+        employeeLastInput = data.employee.nameLast ?? ''
+        employeeEmailInput = data.employee.email ?? ''
+      }
+    }
+
+    savingEmployeeRecord = false
+  }
+
+  function openCreateUserModal() {
+    if (!employee?.flag_Manager || !selectedEmployeeRecord || selectedEmployeeRecord.id_User) return
+
+    createUserEmailInput = selectedEmployeeRecord.email ?? ''
+    createUserPasswordInput = ''
+    createUserManagerInput = !!selectedEmployeeRecord.flag_Manager
+    createUserError = ''
+    showCreateUserModal = true
+  }
+
+  function closeCreateUserModal() {
+    if (creatingEmployeeUser) return
+
+    showCreateUserModal = false
+    createUserEmailInput = ''
+    createUserPasswordInput = ''
+    createUserError = ''
+  }
+
+  async function createUserForEmployee(event) {
+    event.preventDefault()
+    if (!employee?.flag_Manager || !selectedEmployeeRecord || selectedEmployeeRecord.id_User) return
+    if (!createUserEmailInput.trim() || createUserPasswordInput.length < 8) return
+
+    creatingEmployeeUser = true
+    createUserError = ''
+    appError = ''
+
+    const { data, error } = await supabase.functions.invoke('create-employee-user', {
+      body: {
+        employeeId: selectedEmployeeRecord.id,
+        email: createUserEmailInput.trim(),
+        password: createUserPasswordInput,
+        flagManager: !!createUserManagerInput
+      }
+    })
+
+    if (error) {
+      let message = error.message
+      try {
+        const context = error.context
+        if (context && typeof context.json === 'function') {
+          const body = await context.json()
+          if (body?.error) message = body.error
+        }
+      } catch (_) {}
+      createUserError = message
+      creatingEmployeeUser = false
+      return
+    }
+
+    if (!data?.employee) {
+      createUserError = 'The user was created but the Employee response was incomplete.'
+      creatingEmployeeUser = false
+      return
+    }
+
+    selectedEmployeeRecord = data.employee
+    employees = employees.map((item) => item.id === data.employee.id ? data.employee : item)
+    employeeRecordFirstInput = data.employee.nameFirst ?? ''
+    employeeRecordLastInput = data.employee.nameLast ?? ''
+    employeeRecordEmailInput = data.employee.email ?? ''
+    employeeRecordManagerInput = !!data.employee.flag_Manager
+
+    creatingEmployeeUser = false
+    closeCreateUserModal()
   }
 
   async function signIn(event) {
@@ -2005,6 +2299,14 @@
     phaseEditMode = false
     roleCompanyEditMode = false
     roleContactEditMode = false
+    employeeRecordEditMode = false
+
+    if ((target === 'employees' || target === 'employee-record') && !employee?.flag_Manager) {
+      writeAppLocation('home', null, historyMode === 'none' ? 'replace' : historyMode)
+      view = 'home'
+      return
+    }
+
     if (target === 'jobs') await loadJobs()
     if (target === 'pours') await Promise.all([loadJobs(), loadAllPours(), loadPhases()])
     if (target === 'phases') await Promise.all([loadPhases(), loadRolesCompanies(), loadRolesContacts()])
@@ -2014,6 +2316,7 @@
     }
     if (target === 'roles-companies') await loadRolesCompanies()
     if (target === 'roles-contacts') await loadRolesContacts()
+    if (target === 'employees') await loadEmployees()
   }
 
   async function createJob() {
@@ -2333,6 +2636,11 @@
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>
           <span class="nav-icon">▤</span><span>Companies</span>
         </button>
+        {#if employee?.flag_Manager}
+          <button class:active={view === 'employees' || view === 'employee-record'} on:click={() => navigate('employees')}>
+            <span class="nav-icon">◎</span><span>Employees</span>
+          </button>
+        {/if}
 
         <div class="nav-section">
           <button
@@ -2374,6 +2682,9 @@
       <nav class="mobile-nav" aria-label="Mobile navigation">
         <button class:active={view === 'pours' || view === 'pour'} on:click={() => navigate('pours')}>Pours</button>
         <button class:active={view === 'companies' || view === 'company'} on:click={() => navigate('companies')}>Companies</button>
+        {#if employee?.flag_Manager}
+          <button class:active={view === 'employees' || view === 'employee-record'} on:click={() => navigate('employees')}>Employees</button>
+        {/if}
         <button class="mobile-settings-toggle" type="button" aria-expanded={settingsExpanded} on:click={() => settingsExpanded = !settingsExpanded}>
           <span>Settings</span><span class:expanded={settingsExpanded} class="nav-chevron">›</span>
         </button>
@@ -2412,6 +2723,9 @@
             <div class="home-navigation-actions">
               <button class="button primary" type="button" on:click={() => navigate('pours')}>Pours</button>
               <button class="button primary" type="button" on:click={() => navigate('companies')}>Companies</button>
+              {#if employee?.flag_Manager}
+                <button class="button primary" type="button" on:click={() => navigate('employees')}>Employees</button>
+              {/if}
             </div>
             <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
             <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
@@ -2451,6 +2765,136 @@
               {/if}
             </form>
           </section>
+        {:else if view === 'employees'}
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">Employees</p>
+              <h1>Employees</h1>
+              <p>Manage employee records and associate login accounts with employees who require DataTracker access.</p>
+            </div>
+            <button class="button primary" type="button" on:click={createEmployeeRecord}>
+              <span class="plus">+</span>New Employee
+            </button>
+          </section>
+
+          <section class="panel list-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Employee register</p><h2>All employees</h2></div>
+              <span class="count-badge">{employees.length}</span>
+            </div>
+
+            {#if loadingEmployees}
+              <div class="panel-loading">Loading employees…</div>
+            {:else if employees.length === 0}
+              <div class="empty-state compact">
+                <h3>No employees found</h3>
+                <p>Create an Employee record before creating a login account.</p>
+              </div>
+            {:else}
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>User Account</th>
+                      <th>Manager</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each employees as employeeRecord (employeeRecord.id)}
+                      <tr
+                        class="clickable-row"
+                        role="button"
+                        tabindex="0"
+                        on:click={() => openEmployeeRecord(employeeRecord.id)}
+                        on:keydown={(event) => (event.key === 'Enter' || event.key === ' ') && openEmployeeRecord(employeeRecord.id)}
+                      >
+                        <td><strong>{employeeName(employeeRecord)}</strong></td>
+                        <td>{employeeRecord.email || ''}</td>
+                        <td>{employeeRecord.id_User ? 'Linked' : 'No User'}</td>
+                        <td>{employeeRecord.flag_Manager ? 'Yes' : 'No'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </section>
+
+        {:else if view === 'employee-record'}
+          <button class="back-button" on:click={() => navigate('employees')}>← Back to Employees</button>
+
+          {#if loadingEmployeeRecord}
+            <section class="panel panel-loading">Loading employee…</section>
+          {:else if selectedEmployeeRecord}
+            <section class="detail-heading">
+              <div>
+                <p class="eyebrow">Employee details</p>
+                <h1>{employeeName(selectedEmployeeRecord)}</h1>
+              </div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Employee</p>
+                  <h2>Employee details</h2>
+                </div>
+
+                <div class="heading-actions">
+                  {#if !selectedEmployeeRecord.id_User}
+                    <button class="button primary" type="button" on:click={openCreateUserModal}>Create User</button>
+                  {:else}
+                    <span class="status-pill">User Account Linked</span>
+                  {/if}
+
+                  {#if !employeeRecordEditMode}
+                    <button class="button secondary" type="button" on:click={() => employeeRecordEditMode = true}>Edit</button>
+                  {/if}
+                </div>
+              </div>
+
+              <form class="phase-detail-form" on:submit={saveEmployeeRecord}>
+                <div class="address-edit-grid">
+                  <label class="field-label">
+                    <span>First Name</span>
+                    <input type="text" bind:value={employeeRecordFirstInput} disabled={!employeeRecordEditMode} required />
+                  </label>
+
+                  <label class="field-label">
+                    <span>Last Name</span>
+                    <input type="text" bind:value={employeeRecordLastInput} disabled={!employeeRecordEditMode} required />
+                  </label>
+
+                  <label class="field-label">
+                    <span>Email</span>
+                    <input type="email" bind:value={employeeRecordEmailInput} disabled={!employeeRecordEditMode} />
+                  </label>
+
+                  <label class="field-label employee-manager-field">
+                    <span>Manager</span>
+                    <input type="checkbox" bind:checked={employeeRecordManagerInput} disabled={!employeeRecordEditMode} />
+                  </label>
+
+                  <div class="field-label">
+                    <span>User Account</span>
+                    <div class="readonly-value">{selectedEmployeeRecord.id_User ? 'Linked' : 'Not linked'}</div>
+                  </div>
+                </div>
+
+                {#if employeeRecordEditMode}
+                  <div class="form-actions">
+                    <button class="button secondary" type="button" on:click={cancelEmployeeRecordEdit}>Cancel</button>
+                    <button class="button primary" type="submit" disabled={savingEmployeeRecord}>
+                      {savingEmployeeRecord ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                {/if}
+              </form>
+            </section>
+          {/if}
+
         {:else if view === 'jobs'}
           <section class="page-heading">
             <div><p class="eyebrow">Jobs</p><h1>Jobs</h1><p>Track each job and its associated pour stages.</p></div>
@@ -3444,6 +3888,118 @@
               <button class="button primary" type="button" on:click={saveDateHistory} disabled={savingHistory}>{savingHistory ? "Saving…" : "Save"}</button>
             </div>
           </div>
+        </section>
+      </div>
+    {/if}
+
+    {#if showEmployeeCreateModal}
+      <div class="modal-backdrop" role="presentation" on:click={closeEmployeeCreateModal}>
+        <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="new-employee-title" on:click|stopPropagation>
+          <div class="modal-heading">
+            <div>
+              <p class="eyebrow">Employees</p>
+              <h2 id="new-employee-title">New Employee</h2>
+            </div>
+            <button class="modal-close" aria-label="Close" on:click={closeEmployeeCreateModal} disabled={creatingEmployeeRecord}>×</button>
+          </div>
+
+          <form class="modal-body" on:submit={saveNewEmployee}>
+            {#if newEmployeeError}
+              <div class="alert error">{newEmployeeError}</div>
+            {/if}
+
+            <div class="form-grid">
+              <label class="field-label">
+                <span>First Name</span>
+                <input type="text" bind:value={newEmployeeFirstInput} required autocomplete="off" />
+              </label>
+
+              <label class="field-label">
+                <span>Last Name</span>
+                <input type="text" bind:value={newEmployeeLastInput} required autocomplete="off" />
+              </label>
+
+              <label class="field-label">
+                <span>Email</span>
+                <input type="email" bind:value={newEmployeeEmailInput} autocomplete="off" />
+              </label>
+
+              <label class="checkbox-line">
+                <input type="checkbox" bind:checked={newEmployeeManagerInput} />
+                <span>Manager</span>
+              </label>
+            </div>
+
+            <div class="modal-actions">
+              <button class="button secondary" type="button" on:click={closeEmployeeCreateModal} disabled={creatingEmployeeRecord}>Cancel</button>
+              <button
+                class="button primary"
+                type="submit"
+                disabled={creatingEmployeeRecord || !newEmployeeFirstInput.trim() || !newEmployeeLastInput.trim()}
+              >
+                {creatingEmployeeRecord ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    {/if}
+
+    {#if showCreateUserModal && selectedEmployeeRecord}
+      <div class="modal-backdrop" role="presentation" on:click={closeCreateUserModal}>
+        <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-user-title" on:click|stopPropagation>
+          <div class="modal-heading">
+            <div>
+              <p class="eyebrow">User Account</p>
+              <h2 id="create-user-title">Create User for {employeeName(selectedEmployeeRecord)}</h2>
+              <p>This creates a Supabase Auth account and links it to this existing Employee.</p>
+            </div>
+            <button class="modal-close" aria-label="Close" on:click={closeCreateUserModal} disabled={creatingEmployeeUser}>×</button>
+          </div>
+
+          <form class="modal-body" on:submit={createUserForEmployee}>
+            {#if createUserError}
+              <div class="alert error">{createUserError}</div>
+            {/if}
+
+            <div class="form-grid">
+              <label class="field-label">
+                <span>Login Email</span>
+                <input type="email" bind:value={createUserEmailInput} required autocomplete="off" />
+              </label>
+
+              <label class="field-label">
+                <span>Temporary Password</span>
+                <input
+                  type="password"
+                  bind:value={createUserPasswordInput}
+                  required
+                  minlength="8"
+                  autocomplete="new-password"
+                  aria-describedby="temporary-password-help"
+                />
+                {#if createUserPasswordInput.length === 0}
+                  <small id="temporary-password-help">Minimum 8 characters.</small>
+                {:else if createUserPasswordInput.length < 8}
+                  <small id="temporary-password-help" class="field-error">Password is too short. Minimum 8 characters.</small>
+                {:else}
+                  <small id="temporary-password-help">Password length requirement met.</small>
+                {/if}
+              </label>
+
+              <label class="checkbox-line">
+                <input type="checkbox" bind:checked={createUserManagerInput} />
+                <span>Manager access</span>
+              </label>
+            </div>
+
+            <div class="modal-actions">
+              <button class="button secondary" type="button" on:click={closeCreateUserModal} disabled={creatingEmployeeUser}>Cancel</button>
+              <button class="button primary" type="submit" disabled={creatingEmployeeUser || !createUserEmailInput.trim() || createUserPasswordInput.length < 8}>
+                {creatingEmployeeUser ? 'Creating…' : 'Create User'}
+              </button>
+            </div>
+          </form>
         </section>
       </div>
     {/if}
